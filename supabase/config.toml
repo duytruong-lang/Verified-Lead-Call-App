@@ -34,3 +34,9 @@ verify_jwt = true
 
 [functions.public-recording]
 verify_jwt = false
+
+[functions.sheets-admin]
+verify_jwt = true
+
+[functions.sheets-worker]
+verify_jwt = true
