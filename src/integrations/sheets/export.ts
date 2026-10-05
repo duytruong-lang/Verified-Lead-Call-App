@@ -1,4 +1,4 @@
-import type { ContactOutcome } from '../../shared/types';
+import type { ContactOutcome } from '../../shared/types.ts';
 
 export interface SheetAttemptSnapshot { ordinal: number; outcome: ContactOutcome | null; note?: string | null; completedAt: string | null; }
 export interface SheetExportSnapshot {

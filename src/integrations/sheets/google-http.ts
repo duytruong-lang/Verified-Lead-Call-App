@@ -1,4 +1,4 @@
-import type { SheetColumn, SheetRow, WriteCell } from './core';
+import type { SheetColumn, SheetRow, WriteCell } from './core.ts';
 
 export interface FetchLike { (input: RequestInfo | URL, init?: RequestInit): Promise<Response>; }
 export interface ServiceAccountCredentials { client_email: string; private_key: string; token_uri?: string; }
@@ -132,11 +132,12 @@ export class GoogleSheetsHttp {
     return ranges[0].valueRange?.values?.[0] ?? [];
   }
 
-  async writeRowByMetadata(spreadsheetId: string, metadataId: string, cells: WriteCell[]): Promise<void> {
+  async writeRowByMetadata(spreadsheetId: string, metadataId: string, expectedLeadId: string, idColumnIndex: number, cells: WriteCell[]): Promise<void> {
     if (!cells.length) return;
     const formulaRead = await this.request<{ valueRanges?: Array<{ valueRange?: { values?: string[][] } }> }>(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchGetByDataFilter`, { method: 'POST', body: JSON.stringify({ dataFilters: [{ developerMetadataLookup: { metadataId: Number(metadataId), visibility: 'DOCUMENT' } }], majorDimension: 'ROWS', valueRenderOption: 'FORMULA' }) });
     if (formulaRead.valueRanges?.length !== 1) throw new Error(`Row metadata ${metadataId} returned ${formulaRead.valueRanges?.length ?? 0} rows before sync.`);
     const formulas = formulaRead.valueRanges[0].valueRange?.values?.[0] ?? [];
+    if (String(formulas[idColumnIndex] ?? '').trim() !== expectedLeadId) throw new Error('Stable UUID cell no longer matches the expected app lead; output was not written.');
     const writable = cells.filter(cell => !formulas[cell.columnIndex]?.startsWith('='));
     if (!writable.length) return;
     const last = Math.max(...writable.map(cell => cell.columnIndex));

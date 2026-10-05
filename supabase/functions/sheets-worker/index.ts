@@ -147,7 +147,7 @@ Deno.serve(async request => {
         if (error) throw new Error(`Lease check failed: ${error.message}`);
         return Boolean(data && data.state === 'running' && data.lease_owner === workerId && Number(data.fencing_token) === job.fencingToken && data.lease_expires_at && Date.parse(data.lease_expires_at) > Date.now());
       },
-      async write(mapping, cells, rowMetadataId) { await (await getGoogle()).writeRowByMetadata(mapping.spreadsheetId, rowMetadataId, cells); },
+      async write(mapping, cells, rowMetadataId, expectedLeadId, idColumnIndex) { await (await getGoogle()).writeRowByMetadata(mapping.spreadsheetId, rowMetadataId, expectedLeadId, idColumnIndex, cells); },
       async mark(job, state, errorText) {
         const { error } = await serviceClient.rpc('sheets_mark_job_result', { job_id: job.id, fencing_token: job.fencingToken, result_state: state, error_text: errorText ?? null });
         if (error) throw new Error(`Outbox result update failed: ${error.message}`);

@@ -99,7 +99,7 @@ describe('row developer metadata identity writes', () => {
   it('writes by row metadata identity instead of the previously resolved A1 row number', async () => {
     const fetcher: FetchLike = vi.fn(async input => String(input).includes('batchGetByDataFilter') ? response({ valueRanges: [{ valueRange: { values: [['phone', 'id', '', '', '', '']] } }] }) : response({ totalUpdatedRows: 1 })) as FetchLike;
     const client = new GoogleSheetsHttp('fake', fetcher);
-    await client.writeRowByMetadata('synthetic-id', '905', [
+    await client.writeRowByMetadata('synthetic-id', '905', 'id', 1, [
       { rowNumber: 4, columnIndex: 2, value: 'callback' }, { rowNumber: 4, columnIndex: 5, value: 'time' },
     ]);
     const updateCall = vi.mocked(fetcher).mock.calls.find(call => String(call[0]).includes('batchUpdateByDataFilter'));
@@ -133,12 +133,24 @@ describe('row developer metadata identity writes', () => {
       return url.includes('batchGetByDataFilter') ? response({ valueRanges: [{ valueRange: { values: [['phone', 'id', '=FORMULA()', '']] } }] }) : response({ totalUpdatedRows: 1 });
     }) as FetchLike;
     const client = new GoogleSheetsHttp('fake', fetcher);
-    await client.writeRowByMetadata('synthetic-id', '905', [
+    await client.writeRowByMetadata('synthetic-id', '905', 'id', 1, [
       { rowNumber: 2, columnIndex: 2, value: 'callback' }, { rowNumber: 2, columnIndex: 3, value: 'time' },
     ]);
     const update = vi.mocked(fetcher).mock.calls.find(call => String(call[0]).includes('batchUpdateByDataFilter'));
     const body = JSON.parse(String(update?.[1]?.body));
     expect(body.data[0].values[0]).toEqual([null, null, null, 'time']);
+  });
+  it('blocks all output when the stable UUID cell changed after row metadata resolution', async () => {
+    const calls: string[] = [];
+    const fetcher: FetchLike = vi.fn(async input => {
+      const url = String(input); calls.push(url);
+      if (url.includes('batchGetByDataFilter')) return response({ valueRanges: [{ valueRange: { values: [['22222222-2222-4222-8222-222222222222', 'phone', '']] } }] });
+      return response({ totalUpdatedRows: 1 });
+    }) as FetchLike;
+    await expect(new GoogleSheetsHttp('fake', fetcher).writeRowByMetadata('synthetic-id', '905', '11111111-1111-4111-8111-111111111111', 0, [
+      { rowNumber: 7, columnIndex: 2, value: 'Verified' },
+    ])).rejects.toThrow('Stable UUID cell no longer matches');
+    expect(calls.some(url => url.includes('batchUpdateByDataFilter'))).toBe(false);
   });
 });
 

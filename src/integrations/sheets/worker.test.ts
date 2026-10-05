@@ -32,7 +32,7 @@ describe('Sheets worker retry and fencing', () => {
     expect(await runSheetsWorker(port, 'worker')).toEqual({ processed: 1, blocked: 0, retried: 0 });
     expect(port.write).toHaveBeenCalledWith(expect.anything(), [
       { rowNumber: 1, columnIndex: 2, value: 'callback' }, { rowNumber: 1, columnIndex: 3, value: '2026-10-06T00:00:00Z' },
-    ], '905');
+    ], '905', job.leadId, 1);
     expect(port.mark).toHaveBeenCalledWith(job, 'succeeded');
   });
   it('blocks ambiguous timeout instead of resending a possibly completed write', async () => {

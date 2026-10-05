@@ -1,5 +1,5 @@
-import type { SheetMapping } from '../../shared/types';
-import { mappedOutputCells, resolveMapping, schemaFingerprint, type SheetColumn, type SheetRow } from './core';
+import type { SheetMapping } from '../../shared/types.ts';
+import { mappedOutputCells, resolveMapping, schemaFingerprint, type SheetColumn, type SheetRow } from './core.ts';
 
 export interface SyncJob { id: string; leadId: string; desiredVersion: number; fencingToken: number; }
 export interface ExportSnapshot { leadId: string; desiredVersion: number; output: Record<string, string | number | null>; }
@@ -10,7 +10,7 @@ export interface SheetsWorkerPort {
   findRowMetadata(mapping: SheetMapping, leadId: string): Promise<{ metadataId: string; value: string } | null>;
   exportSnapshot(leadId: string, timeZone?: string): Promise<ExportSnapshot>;
   isLeaseCurrent(job: SyncJob): Promise<boolean>;
-  write(mapping: SheetMapping, cells: ReturnType<typeof mappedOutputCells>, rowMetadataId: string): Promise<void>;
+  write(mapping: SheetMapping, cells: ReturnType<typeof mappedOutputCells>, rowMetadataId: string, expectedLeadId: string, idColumnIndex: number): Promise<void>;
   mark(job: SyncJob, state: 'succeeded' | 'retrying' | 'blocked', error?: string): Promise<void>;
 }
 
@@ -57,7 +57,7 @@ export async function runSheetsWorker(port: SheetsWorkerPort, workerId: string, 
       const currentCells = mappedOutputCells(1, resolution, snapshot.output);
       if (!(await port.isLeaseCurrent(job))) throw new PermanentSyncError('Sync lease or fencing token is no longer current.');
       if (snapshot.desiredVersion < job.desiredVersion) throw new PermanentSyncError('Export snapshot is older than the claimed job.');
-      if (currentCells.length) { writeStarted = true; await port.write(mapping, currentCells, metadata.metadataId); }
+      if (currentCells.length) { writeStarted = true; await port.write(mapping, currentCells, metadata.metadataId, job.leadId, idColumn.index); }
       await port.mark(job, 'succeeded');
     } catch (error) {
       const kind = error instanceof PermanentSyncError || message(error).includes('sheet_identity_conflict_blocked') ? 'blocked' : retryable(error, writeStarted) ? 'retrying' : 'blocked';

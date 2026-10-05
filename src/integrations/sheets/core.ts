@@ -1,4 +1,4 @@
-import type { ContactOutcome, SheetColumnRef, SheetFieldMapping, SheetMapping } from '../../shared/types';
+import type { ContactOutcome, SheetColumnRef, SheetFieldMapping, SheetMapping } from '../../shared/types.ts';
 
 export const SHEETS_IMPORT_PAGE_SIZE = 40;
 export const SHEETS_NEW_ID_BUDGET = 5;
