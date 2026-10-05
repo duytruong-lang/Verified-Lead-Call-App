@@ -59,7 +59,7 @@ function wav(seconds = 1) {
 }
 
 const adminId = await createUser('admin', true, 'admin');
-await createUser('staff-a'); await createUser('staff-b'); await createUser('no-profile', false);
+const staffId = await createUser('staff-a'); await createUser('staff-b'); await createUser('no-profile', false);
 const leadId = randomUUID(); const contentionLeadId = randomUUID(); const otherLeadId = randomUUID();
 for (const [id, phone, name] of [[leadId, '+00000000001', 'Synthetic Lead A'], [contentionLeadId, '+00000000002', 'Synthetic Lead B'], [otherLeadId, '+00000000003', 'Synthetic Lead C']]) {
   const { error } = await service.from('leads').insert({ id, phone, display_name: name, source: 'local-fixture', form_answers: { campaign: 'backend-check' } });
@@ -167,10 +167,12 @@ assert(!('phone' in publicData) && !('displayName' in publicData), 'public share
 assert((await fetch(publicData.signedAudioUrl)).ok, 'five-minute signed playback URL serves private audio');
 
 const saveKey = `save-${tag}`;
-const saved = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
+const saved = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', note: 'Synthetic app-owned call note', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
 if (saved.error) throw saved.error;
 assert(saved.data.data.attemptCount === 1 && saved.data.data.attempt.state === 'completed' && saved.data.data.handoff?.recordingId === recording.id && saved.data.data.handoff.version === 1, 'outcome and verified handoff save atomically with the typed handoff object');
-const replay = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
+const noteSnapshot = await service.rpc('sheets_export_snapshot', { lead_id: leadId });
+assert(!noteSnapshot.error && noteSnapshot.data.evaluationNote === 'Synthetic app-owned call note', 'latest app attempt note is available to mapped Sheet export');
+const replay = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', note: 'Synthetic app-owned call note', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
 assert(!replay.error && replay.data.data.attemptCount === 1, 'outcome retry is idempotent and does not increment count twice');
 
 const detail = await invoke(a, 'get-lead', { leadId });
@@ -275,9 +277,11 @@ const identitySnapshot = await service.rpc('sheets_export_snapshot', { lead_id: 
 assert(Boolean(identitySnapshot.error) && identitySnapshot.error.message.includes('sheet_identity_conflict_blocked'), 'identity-blocked leads cannot be exported');
 const identityClaim = await service.rpc('sheets_claim_jobs', { worker_id: `worker-identity-blocked-${tag}`, job_limit: 100, lease_seconds: 60 });
 assert(!identityClaim.error && !identityClaim.data.some((job) => job.lead_id === identityLeadId), 'identity conflict prevents pending output from being claimed');
-const identityDenied = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: false, detail: 'Still duplicated' });
+const identityDenied = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: false, detail: 'Still duplicated', p_actor_id: adminId });
 assert(!identityDenied.error && identityDenied.data === false, 'identity barrier stays until a unique identity is observed');
-const identityResolved = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: true, detail: 'Synthetic identity verified' });
+const identityStaffDenied = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: true, detail: 'Staff cannot resolve identities', p_actor_id: staffId });
+assert(Boolean(identityStaffDenied.error) && identityStaffDenied.error.message.includes('admin_required'), 'identity repair audit RPC accepts only an admin actor');
+const identityResolved = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: true, detail: 'Synthetic identity verified', p_actor_id: adminId });
 assert(!identityResolved.error && identityResolved.data === true, 'verified identity repair clears the persisted barrier');
 const identityReleased = await service.rpc('sheets_claim_jobs', { worker_id: `worker-identity-repaired-${tag}`, job_limit: 100, lease_seconds: 60 });
 assert(!identityReleased.error && identityReleased.data.some((job) => job.lead_id === identityLeadId && job.desired_version === 1), 'current output becomes claimable only after identity repair');
