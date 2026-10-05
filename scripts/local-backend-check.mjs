@@ -169,7 +169,7 @@ assert((await fetch(publicData.signedAudioUrl)).ok, 'five-minute signed playback
 const saveKey = `save-${tag}`;
 const saved = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
 if (saved.error) throw saved.error;
-assert(saved.data.data.attemptCount === 1 && saved.data.data.attempt.state === 'completed', 'outcome and verified handoff save atomically');
+assert(saved.data.data.attemptCount === 1 && saved.data.data.attempt.state === 'completed' && saved.data.data.handoff?.recordingId === recording.id && saved.data.data.handoff.version === 1, 'outcome and verified handoff save atomically with the typed handoff object');
 const replay = await invoke(a, 'save-outcome', { claimId, outcome: 'interested', recordingId: recording.id, evaluation: { result: 'verified', recordingId: recording.id, expectedVersion: 0 }, idempotencyKey: saveKey });
 assert(!replay.error && replay.data.data.attemptCount === 1, 'outcome retry is idempotent and does not increment count twice');
 
@@ -212,6 +212,22 @@ const distinctUuid = await service.rpc('sheets_import_row', { row: { ...legacyPa
 assert(!distinctUuid.error, 'Sheet identity uses stable UUID and does not merge by phone');
 const legacyDetail = await invoke(a, 'get-lead', { leadId: legacyLeadId });
 assert(!legacyDetail.error && legacyDetail.data.data.evaluation === null && legacyDetail.data.data.legacySourceMetadata.evaluation === 'verified' && legacyDetail.data.data.legacySourceMetadata.recordingLinks.length === 1, 'legacy evaluation and links remain separate from app verification');
+const retryLeadId = randomUUID();
+const retryLead = await service.rpc('sheets_import_row', { row: { ...legacyPayload, leadId: retryLeadId, sourcePlatformId: null, phone: '+00000000006', displayName: 'Synthetic Retry Lead', legacyAttempts: [{ ordinal: 1, outcome: 'unreachable', occurredAt: new Date().toISOString() }], legacyAttemptCount: 1, legacyEvaluation: null, legacyOutcome: 'unreachable', legacyVerifiedAt: null, legacyShareUrls: [] } });
+if (retryLead.error) throw retryLead.error;
+const callbackLeadId = randomUUID();
+const callbackLead = await service.rpc('sheets_import_row', { row: { ...legacyPayload, leadId: callbackLeadId, sourcePlatformId: null, phone: '+00000000008', displayName: 'Synthetic Callback Lead', legacyAttempts: [{ ordinal: 1, outcome: 'callback', occurredAt: new Date().toISOString() }], legacyAttemptCount: 1, legacyEvaluation: null, legacyOutcome: null, legacyVerifiedAt: null, legacyShareUrls: [] } });
+if (callbackLead.error) throw callbackLead.error;
+const staleCallbackLeadId = randomUUID();
+const staleCallbackLead = await service.rpc('sheets_import_row', { row: { ...legacyPayload, leadId: staleCallbackLeadId, sourcePlatformId: null, phone: '+00000000007', displayName: 'Synthetic Latest Outcome Lead', legacyAttempts: [{ ordinal: 1, outcome: 'callback', occurredAt: '2025-01-01T00:00:00Z' }, { ordinal: 2, outcome: 'unreachable', occurredAt: '2025-01-02T00:00:00Z' }], legacyAttemptCount: 2, legacyEvaluation: null, legacyOutcome: null, legacyVerifiedAt: null, legacyShareUrls: [] } });
+if (staleCallbackLead.error) throw staleCallbackLead.error;
+const notCalledQueue = await a.rpc('leads_for_actor', { p_queue: 'not_called' });
+const inProgressQueue = await a.rpc('leads_for_actor', { p_queue: 'in_progress' });
+const callbackQueue = await a.rpc('leads_for_actor', { p_queue: 'callback' });
+const finishedQueue = await a.rpc('leads_for_actor', { p_queue: 'finished' });
+assert(!notCalledQueue.error && !notCalledQueue.data.some((lead) => lead.id === retryLeadId) && !inProgressQueue.error && inProgressQueue.data.some((lead) => lead.id === retryLeadId), 'saved unreachable lead without evaluation remains in the in-progress queue');
+assert(!callbackQueue.error && callbackQueue.data.some((lead) => lead.id === callbackLeadId) && !callbackQueue.data.some((lead) => lead.id === retryLeadId) && !callbackQueue.data.some((lead) => lead.id === staleCallbackLeadId), 'callback queue uses only the latest completed outcome');
+assert(!finishedQueue.error && finishedQueue.data.some((lead) => lead.id === leadId) && finishedQueue.data.some((lead) => lead.id === legacyLeadId), 'app-evaluated and legacy-evaluated leads belong to the finished queue');
 
 const currentLead = await service.from('leads').select('sheet_sync_version').eq('id', leadId).single();
 const claimedJobs = await service.rpc('sheets_claim_jobs', { worker_id: `worker-${tag}`, job_limit: 100, lease_seconds: 60 });
@@ -224,10 +240,47 @@ const evaluation = await invoke(a, 'complete-evaluation', { leadId, result: 'unv
 if (evaluation.error) throw evaluation.error;
 const blockedClaim = await service.rpc('sheets_claim_jobs', { worker_id: `worker-next-${tag}`, job_limit: 100, lease_seconds: 60 });
 assert(!blockedClaim.error && !blockedClaim.data.some((job) => job.lead_id === leadId), 'blocked ambiguous write holds later output until reconciliation');
-const mismatch = await service.rpc('sheets_reconcile_job', { job_id: currentJob.id, fencing_token: currentJob.fencing_token, observed_matches: false, detail: 'Synthetic row differs' });
+const latestVersion = await service.from('leads').select('sheet_sync_version').eq('id', leadId).single();
+const tooSoon = await service.rpc('sheets_reconcile_job', { job_id: currentJob.id, fencing_token: currentJob.fencing_token, observed_matches: true, observed_version: latestVersion.data.sheet_sync_version, detail: 'Synthetic early readback' });
+assert(!tooSoon.error && tooSoon.data === false, 'ambiguous blocked job cannot reconcile inside the quarantine window');
+await service.from('sheet_sync_jobs').update({ blocked_at: new Date(Date.now() - 181_000).toISOString() }).eq('id', currentJob.id);
+const mismatch = await service.rpc('sheets_reconcile_job', { job_id: currentJob.id, fencing_token: currentJob.fencing_token, observed_matches: false, observed_version: latestVersion.data.sheet_sync_version, detail: 'Synthetic row differs' });
 assert(!mismatch.error && mismatch.data === false, 'mismatched Sheet row remains blocked');
-const reconciled = await service.rpc('sheets_reconcile_job', { job_id: currentJob.id, fencing_token: currentJob.fencing_token, observed_matches: true, detail: 'Synthetic row now matches latest snapshot' });
-assert(!reconciled.error && reconciled.data === true, 'verified reconciliation clears the blocked fence');
+const reconciled = await service.rpc('sheets_reconcile_job', { job_id: currentJob.id, fencing_token: currentJob.fencing_token, observed_matches: true, observed_version: latestVersion.data.sheet_sync_version, detail: 'Synthetic row now matches latest snapshot' });
+assert(!reconciled.error && reconciled.data === true, 'verified reconciliation supersedes old barrier against the latest app version');
+const releasedClaim = await service.rpc('sheets_claim_jobs', { worker_id: `worker-released-${tag}`, job_limit: 100, lease_seconds: 60 });
+const releasedJob = releasedClaim.data?.find((job) => job.lead_id === leadId && job.desired_version === latestVersion.data.sheet_sync_version);
+assert(!releasedClaim.error && Boolean(releasedJob), 'current outbox version becomes claimable after exact latest-row reconciliation');
+const releasedResult = await service.rpc('sheets_mark_job_result', { job_id: releasedJob.id, fencing_token: releasedJob.fencing_token, result_state: 'succeeded', error_text: null });
+assert(!releasedResult.error && releasedResult.data === true, 'latest output version can finish after old barrier is superseded');
+
+const expiringVersion = await invoke(a, 'complete-evaluation', { leadId, result: 'unverified', expectedVersion: 3, idempotencyKey: `expiry-evaluation-${tag}` });
+if (expiringVersion.error) throw expiringVersion.error;
+const expiryClaim = await service.rpc('sheets_claim_jobs', { worker_id: `worker-expiry-${tag}`, job_limit: 100, lease_seconds: 60 });
+const expiryJob = expiryClaim.data?.find((job) => job.lead_id === leadId);
+assert(Boolean(expiryJob), 'current Sheet job can be leased for expiry test');
+await service.from('sheet_sync_jobs').update({ lease_expires_at: new Date(Date.now() - 1000).toISOString() }).eq('id', expiryJob.id);
+const staleResult = await service.rpc('sheets_mark_job_result', { job_id: expiryJob.id, fencing_token: expiryJob.fencing_token, result_state: 'succeeded', error_text: null });
+assert(!staleResult.error && staleResult.data === false, 'expired worker fence cannot report a late success');
+await service.rpc('sheets_claim_jobs', { worker_id: `worker-quarantine-${tag}`, job_limit: 100, lease_seconds: 60 });
+const quarantined = await service.from('sheet_sync_jobs').select('state,last_error').eq('id', expiryJob.id).single();
+assert(!quarantined.error && quarantined.data.state === 'blocked' && quarantined.data.last_error.includes('completion is uncertain'), 'expired write is quarantined for reconciliation instead of blind retry');
+
+const identityLeadId = retryLeadId;
+const identityVersion = await invoke(a, 'complete-evaluation', { leadId: identityLeadId, result: 'unverified', expectedVersion: 0, idempotencyKey: `identity-evaluation-${tag}` });
+if (identityVersion.error) throw identityVersion.error;
+const identityConflict = await service.rpc('sheets_record_conflict', { lead_id: identityLeadId, conflict: { reason: 'duplicate_stable_id', synthetic: true } });
+assert(!identityConflict.error, 'identity conflict is persisted as an export barrier');
+const identitySnapshot = await service.rpc('sheets_export_snapshot', { lead_id: identityLeadId });
+assert(Boolean(identitySnapshot.error) && identitySnapshot.error.message.includes('sheet_identity_conflict_blocked'), 'identity-blocked leads cannot be exported');
+const identityClaim = await service.rpc('sheets_claim_jobs', { worker_id: `worker-identity-blocked-${tag}`, job_limit: 100, lease_seconds: 60 });
+assert(!identityClaim.error && !identityClaim.data.some((job) => job.lead_id === identityLeadId), 'identity conflict prevents pending output from being claimed');
+const identityDenied = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: false, detail: 'Still duplicated' });
+assert(!identityDenied.error && identityDenied.data === false, 'identity barrier stays until a unique identity is observed');
+const identityResolved = await service.rpc('sheets_resolve_identity_conflict', { lead_id: identityLeadId, observed_unique: true, detail: 'Synthetic identity verified' });
+assert(!identityResolved.error && identityResolved.data === true, 'verified identity repair clears the persisted barrier');
+const identityReleased = await service.rpc('sheets_claim_jobs', { worker_id: `worker-identity-repaired-${tag}`, job_limit: 100, lease_seconds: 60 });
+assert(!identityReleased.error && identityReleased.data.some((job) => job.lead_id === identityLeadId && job.desired_version === 1), 'current output becomes claimable only after identity repair');
 
 const credentials = { localOnly: true, users, leadIds: { primary: leadId, contention: contentionLeadId, other: otherLeadId }, createdBy: adminId };
 mkdirSync(join(cwd, '.supabase'), { recursive: true });
