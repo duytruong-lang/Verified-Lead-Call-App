@@ -18,7 +18,7 @@ export interface LeadCallRepository {
   resumeAttempt(claimId: UUID): Promise<{ claimId: UUID; ordinal: number; claimExpiresAt: string }>;
   cancelAttempt(claimId: UUID, idempotencyKey: string): Promise<void>;
   saveOutcome(input: SaveOutcomeInput): Promise<SaveOutcomeResult>;
-  beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number }): Promise<import('./types').UploadTarget>;
+  beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number; idempotencyKey: string }): Promise<import('./types').UploadTarget>;
   completeRecordingUpload(input: { recordingId: UUID; sizeBytes: number; durationSeconds: number; checksum?: string }): Promise<import('./types').Recording>;
   completeEvaluation(input: { leadId: UUID; result: 'verified' | 'unverified'; recordingId?: UUID; expectedVersion: number; idempotencyKey: string }): Promise<{ version: number }>;
   createShare(recordingId: UUID, idempotencyKey: string): Promise<{ shareId: UUID; publicUrl: string }>;

@@ -47,6 +47,13 @@ export interface LeadDetails extends LeadSummary {
   evaluationVersion: number;
   shares: RecordingShare[];
   syncStatus: SyncStatus | null;
+  legacySourceMetadata?: {
+    outcome: string | null;
+    evaluation: 'verified' | 'unverified' | null;
+    evaluationAt: IsoDateTime | null;
+    note: string | null;
+    recordingLinks: string[];
+  } | null;
 }
 
 export interface ContactAttempt {
