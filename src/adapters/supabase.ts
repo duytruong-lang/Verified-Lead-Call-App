@@ -1,0 +1,101 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { LeadCallRepository } from '../shared/repository';
+import { RepositoryError } from '../shared/repository';
+import type { LeadDetails, LeadQueue, LeadSummary, PublicRecordingInfo, SaveOutcomeInput, SaveOutcomeResult, SheetMapping, SheetMappingValidation, UUID } from '../shared/types';
+
+type EdgeFunctionName = 'list-leads' | 'get-lead' | 'claim-attempt' | 'resume-attempt' | 'cancel-attempt' | 'save-outcome' | 'begin-recording-upload' | 'complete-recording-upload' | 'complete-evaluation' | 'create-share' | 'replace-handoff' | 'revoke-share' | 'resolve-share' | 'validate-sheet-mapping' | 'enqueue-sheet-sync';
+
+export class SupabaseRepository implements LeadCallRepository {
+  private constructor(private readonly client: SupabaseClient) {}
+
+  static connect(url: string | undefined, anonKey: string | undefined): SupabaseRepository {
+    if (!url || !anonKey) throw new Error('Supabase mode requires VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+    return new SupabaseRepository(createClient(url, anonKey, { auth: { persistSession: true, autoRefreshToken: true } }));
+  }
+
+  listLeads(queue: LeadQueue): Promise<LeadSummary[]> {
+    return this.invoke('list-leads', { queue });
+  }
+
+  async getSession(): Promise<{ actor: import('../shared/types').Actor | null }> {
+    const { data, error } = await this.client.auth.getUser();
+    if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
+    if (!data.user) return { actor: null };
+    const { data: profile, error: profileError } = await this.client.from('profiles').select('role').eq('user_id', data.user.id).single();
+    if (profileError) throw new RepositoryError(profileError.message, 'PROFILE_ERROR');
+    return { actor: { id: data.user.id as UUID, role: profile.role } };
+  }
+
+  async signIn(email: string, password: string): Promise<void> {
+    const { error } = await this.client.auth.signInWithPassword({ email, password });
+    if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
+  }
+
+  async signOut(): Promise<void> {
+    const { error } = await this.client.auth.signOut();
+    if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
+  }
+
+  getLead(leadId: UUID): Promise<LeadDetails> {
+    return this.invoke('get-lead', { leadId });
+  }
+
+  claimAttempt(leadId: UUID, idempotencyKey: string): Promise<{ claimId: UUID; ordinal: number }> {
+    return this.invoke('claim-attempt', { leadId, idempotencyKey });
+  }
+
+  resumeAttempt(claimId: UUID): Promise<{ claimId: UUID; ordinal: number; claimExpiresAt: string }> {
+    return this.invoke('resume-attempt', { claimId });
+  }
+
+  async cancelAttempt(claimId: UUID, idempotencyKey: string): Promise<void> {
+    await this.invoke('cancel-attempt', { claimId, idempotencyKey });
+  }
+
+  saveOutcome(input: SaveOutcomeInput): Promise<SaveOutcomeResult> {
+    return this.invoke('save-outcome', { ...input });
+  }
+
+  beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number }): Promise<import('../shared/types').UploadTarget> {
+    return this.invoke('begin-recording-upload', input);
+  }
+
+  completeRecordingUpload(input: { recordingId: UUID; sizeBytes: number; durationSeconds: number; checksum?: string }): Promise<import('../shared/types').Recording> {
+    return this.invoke('complete-recording-upload', input);
+  }
+
+  completeEvaluation(input: { leadId: UUID; result: 'verified' | 'unverified'; recordingId?: UUID; expectedVersion: number; idempotencyKey: string }): Promise<{ version: number }> {
+    return this.invoke('complete-evaluation', input);
+  }
+
+  createShare(recordingId: UUID, idempotencyKey: string): Promise<{ shareId: UUID; publicUrl: string }> {
+    return this.invoke('create-share', { recordingId, idempotencyKey });
+  }
+
+  replaceHandoff(input: { leadId: UUID; recordingId: UUID; expectedVersion: number; idempotencyKey: string }): Promise<{ version: number; shareId: UUID }> {
+    return this.invoke('replace-handoff', input);
+  }
+
+  async revokeShare(shareId: UUID, idempotencyKey: string): Promise<void> {
+    await this.invoke('revoke-share', { shareId, idempotencyKey });
+  }
+
+  validateSheetMapping(mapping: SheetMapping): Promise<SheetMappingValidation> {
+    return this.invoke('validate-sheet-mapping', { ...mapping });
+  }
+
+  enqueueSheetSync(leadId: UUID, desiredVersion: number, idempotencyKey: string): Promise<UUID> {
+    return this.invoke('enqueue-sheet-sync', { leadId, desiredVersion, idempotencyKey });
+  }
+
+  resolveShare(token: string): Promise<PublicRecordingInfo> {
+    return this.invoke('resolve-share', { token });
+  }
+
+  private async invoke<T>(name: EdgeFunctionName, body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke<T>(name, { body });
+    if (error) throw new RepositoryError(error.message, 'BACKEND_ERROR');
+    if (data === null) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    return data;
+  }
+}
