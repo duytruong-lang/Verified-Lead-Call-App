@@ -29,6 +29,7 @@ export function App() {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [saveUncertain, setSaveUncertain] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [assessment, setAssessment] = useState<'verified' | 'unverified' | null>(null);
@@ -36,9 +37,9 @@ export function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
   const mediaRef = useRef<MediaRecorder | null>(null); const chunksRef = useRef<BlobPart[]>([]); const streamRef = useRef<MediaStream | null>(null); const timerRef = useRef<number | null>(null); const previewRef = useRef<HTMLAudioElement>(null);
-  const selectedLeadRef = useRef<UUID | null>(null); const recordingLeadRef = useRef<UUID | null>(null); const discardRecordingRef = useRef(false);
+  const selectedLeadRef = useRef<UUID | null>(null); const recordingLeadRef = useRef<UUID | null>(null); const discardRecordingRef = useRef(false); const recordingGenerationRef = useRef(0); const clipVersionRef = useRef(0);
   const pendingUploadRef = useRef<{ claimId: UUID; blob: Blob; idempotencyKey: string; target?: Awaited<ReturnType<LeadCallRepository['beginRecordingUpload']>>; uploaded: boolean } | null>(null);
-  const readyRecordingRef = useRef<Recording | null>(null); const saveRequestRef = useRef<{ signature: string; key: string; shareKey: string } | null>(null);
+  const readyRecordingRef = useRef<Recording | null>(null); const saveRequestRef = useRef<{ signature: string; key: string; shareKey: string; stage: 'preparing' | 'committing'; payload: { outcome: ContactOutcome; note: string; verified: boolean; clipVersion: number } } | null>(null);
   const operationKeysRef = useRef(new Map<string, string>());
   function keyFor(operation: string) { const existing = operationKeysRef.current.get(operation); if (existing) return existing; const key = crypto.randomUUID(); operationKeysRef.current.set(operation, key); return key; }
   function clearKey(operation: string) { operationKeysRef.current.delete(operation); }
@@ -57,20 +58,43 @@ export function App() {
     else if (selectedId) { const details = await repo.getLead(selectedId); setLead(details); setAssessment(details.evaluation); }
     else { setLead(null); setAssessment(null); }
   }, [repo, queue, lead?.id]);
+  const refreshQueueOnly = useCallback(async () => {
+    if (!repo || !actor) return;
+    setLeads(await repo.listLeads(queue));
+  }, [repo, actor, queue]);
 
   useEffect(() => { let alive = true; if (!repo) return; void repo.getSession().then(({ actor: current }) => { if (alive) setActor(current); }).catch((e) => { if (alive) setError(e.message); }); return () => { alive = false; }; }, [repo]);
   // Lead selection is intentionally retained while the queue refreshes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (actor) void refresh().catch((e) => setError(e.message)); }, [actor, queue]);
-  useEffect(() => () => { if (timerRef.current) window.clearInterval(timerRef.current); streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+  useEffect(() => {
+    if (!actor) return;
+    const poll = () => { if (document.visibilityState === 'visible') void refreshQueueOnly().catch((e) => setError(errorText(e))); };
+    const timer = window.setInterval(poll, 60_000);
+    window.addEventListener('focus', poll); document.addEventListener('visibilitychange', poll);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', poll); document.removeEventListener('visibilitychange', poll); };
+  }, [actor, refreshQueueOnly]);
+  useEffect(() => () => { recordingGenerationRef.current += 1; if (timerRef.current) window.clearInterval(timerRef.current); mediaRef.current?.stop(); streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
   useEffect(() => { if (!claimId || !repo) return; const timer = window.setInterval(() => { void repo.resumeAttempt(claimId).catch((e) => setError(`Không thể gia hạn lượt gọi: ${errorText(e)}`)); }, 5 * 60_000); return () => window.clearInterval(timer); }, [claimId, repo]);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (recording || clip || claimId || busy) { event.preventDefault(); event.returnValue = ''; } }; window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn); }, [recording, clip, claimId, busy]);
 
+  async function discardActiveRecorder() {
+    const media = mediaRef.current; const stream = streamRef.current;
+    discardRecordingRef.current = true; recordingGenerationRef.current += 1; invalidateAudioIntent();
+    if (timerRef.current) { window.clearInterval(timerRef.current); timerRef.current = null; }
+    if (media && media.state !== 'inactive') await new Promise<void>((resolve) => {
+      media.addEventListener('stop', () => resolve(), { once: true });
+      try { media.stop(); } catch { resolve(); }
+    });
+    stream?.getTracks().forEach((track) => track.stop());
+    if (mediaRef.current === media) mediaRef.current = null;
+    if (streamRef.current === stream) streamRef.current = null;
+    chunksRef.current = []; recordingLeadRef.current = null; setRecording(false);
+  }
   async function abandonCurrentWork() {
     if (!(recording || clip || claimId)) return true;
     if (!window.confirm('Rời lead này sẽ hủy lượt gọi hoặc bản ghi chưa lưu. Bạn muốn tiếp tục?')) return false;
-    discardRecordingRef.current = true;
-    if (recording) stopRecording();
+    await discardActiveRecorder();
     if (claimId && repo) { try { await repo.cancelAttempt(claimId, keyFor(`cancel:${claimId}`)); clearKey(`cancel:${claimId}`); } catch { /* expired draft may already be released */ } }
     setClaimId(null); resetComposer(); setError(''); setMessage('');
     return true;
@@ -79,21 +103,26 @@ export function App() {
     if (busy || !(await abandonCurrentWork())) return;
     const details = await repo!.getLead(item.id); setLead(details); setAssessment(details.evaluation);
   }
-  function resetComposer() { setClip(null); setClipName(''); setClipDuration(0); setOutcome(''); setNote(''); setVerified(false); setSeconds(0); pendingUploadRef.current = null; readyRecordingRef.current = null; saveRequestRef.current = null; setShareUrl(''); }
+  function invalidateAudioIntent() { clipVersionRef.current += 1; pendingUploadRef.current = null; readyRecordingRef.current = null; saveRequestRef.current = null; setShareUrl(''); setSaveUncertain(false); }
+  function resetComposer() { invalidateAudioIntent(); setClip(null); setClipName(''); setClipDuration(0); setOutcome(''); setNote(''); setVerified(false); setSeconds(0); }
   async function beginCall() {
     if (!repo || !lead) return;
     try { setBusy(true); setError(''); const key = `claim:${lead.id}`; const result = await repo.claimAttempt(lead.id, keyFor(key)); clearKey(key); setClaimId(result.claimId); setOrdinal(result.ordinal); setMessage(`Đã giữ lượt gọi ${result.ordinal}/5 cho bạn.`); await refresh(queue, lead.id); }
     catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
   async function startRecording() {
+    invalidateAudioIntent(); setClip(null); setClipName(''); setClipDuration(0); discardRecordingRef.current = false;
+    const generation = ++recordingGenerationRef.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('Trình duyệt không hỗ trợ ghi âm micro. Hãy tải file âm thanh lên.');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); streamRef.current = stream; chunksRef.current = [];
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (generation !== recordingGenerationRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
+      streamRef.current = stream; chunksRef.current = [];
       const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((x) => MediaRecorder.isTypeSupported(x));
       const media = new MediaRecorder(stream, mimeType ? { mimeType } : undefined); mediaRef.current = media;
       discardRecordingRef.current = false; recordingLeadRef.current = lead?.id ?? null;
       media.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-      media.onstop = () => { const blob = new Blob(chunksRef.current, { type: media.mimeType || 'audio/webm' }); stream.getTracks().forEach((t) => t.stop()); streamRef.current = null; setRecording(false); if (timerRef.current) clearInterval(timerRef.current); if (discardRecordingRef.current || recordingLeadRef.current !== selectedLeadRef.current) return; if (blob.size) void acceptClip(blob, `Ghi âm ${new Date().toLocaleTimeString('vi-VN')}`); else setError('Bản ghi trống, vui lòng ghi lại.'); };
+      media.onstop = () => { const blob = new Blob(chunksRef.current, { type: media.mimeType || 'audio/webm' }); stream.getTracks().forEach((t) => t.stop()); if (streamRef.current === stream) streamRef.current = null; if (mediaRef.current === media) mediaRef.current = null; setRecording(false); if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } if (generation !== recordingGenerationRef.current || discardRecordingRef.current || recordingLeadRef.current !== selectedLeadRef.current) return; if (blob.size) void acceptClip(blob, `Ghi âm ${new Date().toLocaleTimeString('vi-VN')}`); else setError('Bản ghi trống, vui lòng ghi lại.'); };
       media.start(500); setRecording(true); setSeconds(0); timerRef.current = window.setInterval(() => setSeconds((s) => { if (s + 1 >= RECORDING_LIMIT_SECONDS) { mediaRef.current?.stop(); return RECORDING_LIMIT_SECONDS; } return s + 1; }), 1000);
     } catch (e) { setError(errorText(e)); }
   }
@@ -104,15 +133,13 @@ export function App() {
     const probe = document.createElement('audio'); probe.preload = 'metadata'; const src = URL.createObjectURL(blob);
     let duration = await new Promise<number>((resolve, reject) => { probe.onloadedmetadata = () => resolve(probe.duration); probe.onerror = () => reject(new Error('Trình duyệt không đọc được file này. Hãy chọn audio có thể phát.')); probe.src = src; }).catch(() => NaN);
     URL.revokeObjectURL(src);
-    if (!Number.isFinite(duration) || duration <= 0) {
-      const audioContext = new AudioContext();
-      try { const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer()); duration = decoded.duration; }
-      catch { throw new Error('Trình duyệt không giải mã được audio này. Hãy chọn file có thể phát.'); }
-      finally { await audioContext.close(); }
-    }
+    const audioContext = new AudioContext();
+    try { const decoded = await audioContext.decodeAudioData(await blob.arrayBuffer()); duration = decoded.duration; }
+    catch { throw new Error('Trình duyệt không giải mã được audio này. Hãy chọn file có thể phát.'); }
+    finally { await audioContext.close(); }
     if (!Number.isFinite(duration) || duration <= 0) throw new Error('Audio không có thời lượng hợp lệ.'); if (duration > RECORDING_LIMIT_SECONDS) throw new Error('Audio vượt giới hạn 30 phút.'); return duration;
   }
-  async function acceptClip(blob: Blob, name: string) { try { const duration = await inspectAudio(blob); setClip(blob); setClipName(name); setClipDuration(duration); setError(''); setMessage('Audio hợp lệ và đang được giữ trên trang này cho đến khi lưu.'); } catch (e) { setClip(null); setError(errorText(e)); } }
+  async function acceptClip(blob: Blob, name: string) { invalidateAudioIntent(); const version = clipVersionRef.current; setClip(null); setClipName(''); setClipDuration(0); try { const duration = await inspectAudio(blob); if (version !== clipVersionRef.current) return; setClip(blob); setClipName(name); setClipDuration(duration); setError(''); setMessage('Audio hợp lệ và đang được giữ trên trang này cho đến khi lưu.'); } catch (e) { if (version === clipVersionRef.current) setError(errorText(e)); } }
   async function selectFile(event: React.ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (file) await acceptClip(file, file.name); event.target.value = ''; }
   async function uploadClip(): Promise<Recording | undefined> {
     if (!clip || !lead || !claimId || !repo) return readyRecordingRef.current ?? undefined;
@@ -133,17 +160,18 @@ export function App() {
     if (!repo || !lead || !claimId || !outcome) { setError('Chọn lượt gọi và kết quả trước khi lưu.'); return; }
     if (outcome === 'other' && !note.trim()) { setError('Vui lòng nhập ghi chú cho kết quả Khác.'); return; }
     if (verified && !clip && readyRecordingRef.current?.state !== 'ready' && !lead.recordings.some((r) => r.state === 'ready' && r.id === lead.handoff?.recordingId)) { setError('Đánh dấu Đã xác minh cần bản ghi âm hợp lệ trong lượt này.'); return; }
-    const signature = JSON.stringify([claimId, outcome, note.trim(), verified, readyRecordingRef.current?.id ?? clipName]);
-    if (!saveRequestRef.current || saveRequestRef.current.signature !== signature) saveRequestRef.current = { signature, key: crypto.randomUUID(), shareKey: crypto.randomUUID() };
+    const signature = JSON.stringify([claimId, outcome, note.trim(), verified, clipVersionRef.current]);
+    if (!saveRequestRef.current || saveRequestRef.current.signature !== signature) saveRequestRef.current = { signature, key: crypto.randomUUID(), shareKey: crypto.randomUUID(), stage: 'preparing', payload: { outcome, note: note.trim(), verified, clipVersion: clipVersionRef.current } };
     const request = saveRequestRef.current;
     try {
       setBusy(true); setError(''); setMessage(''); const ready = await uploadClip();
       let evaluation: { result: 'verified'; recordingId: UUID; expectedVersion: number } | undefined;
       let savedShareUrl = '';
-      if (verified) { const recordingId = ready?.id ?? readyRecordingRef.current?.id ?? lead.handoff?.recordingId; if (!recordingId) throw new Error('Chọn bản ghi âm để xác minh.'); const share = await repo.createShare(recordingId, request.shareKey); savedShareUrl = share.publicUrl; evaluation = { result: 'verified', recordingId, expectedVersion: lead.evaluationVersion }; }
-      await repo.saveOutcome({ claimId, outcome, note: note.trim() || undefined, recordingId: ready?.id ?? readyRecordingRef.current?.id, evaluation, idempotencyKey: request.key });
+      if (request.payload.verified) { const recordingId = ready?.id ?? readyRecordingRef.current?.id ?? lead.handoff?.recordingId; if (!recordingId) throw new Error('Chọn bản ghi âm để xác minh.'); const share = await repo.createShare(recordingId, request.shareKey); savedShareUrl = share.publicUrl; evaluation = { result: 'verified', recordingId, expectedVersion: lead.evaluationVersion }; }
+      request.stage = 'committing';
+      await repo.saveOutcome({ claimId, outcome: request.payload.outcome, note: request.payload.note || undefined, recordingId: ready?.id ?? readyRecordingRef.current?.id, evaluation, idempotencyKey: request.key });
       const completedLead = lead.id; setClaimId(null); resetComposer(); setShareUrl(savedShareUrl); setMessage(verified ? 'Đã lưu kết quả và bàn giao bản ghi.' : 'Đã lưu kết quả. Sheet sẽ đồng bộ nền.'); await advanceAfterSave(completedLead);
-    } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+    } catch (e) { if (request.stage === 'committing') setSaveUncertain(true); setError(errorText(e)); } finally { setBusy(false); }
   }
   async function advanceAfterSave(completedLeadId: UUID) { if (!repo) return; const items = await repo.listLeads(queue); setLeads(items); const next = items.find((item) => item.id !== completedLeadId); if (next) { setLead(await repo.getLead(next.id)); setAssessment(next.queue === 'finished' ? (await repo.getLead(next.id)).evaluation : null); } else { setLead(null); setAssessment(null); } }
   async function assess(result: 'verified' | 'unverified', recordingId?: UUID) {
@@ -151,7 +179,7 @@ export function App() {
     try { setBusy(true); setError(''); let selectedId = recordingId; if (result === 'verified' && !selectedId) { const ready = lead.recordings.filter((r) => r.state === 'ready'); selectedId = ready.at(-1)?.id; } const shareOperation = `eval-share:${lead.id}:${lead.evaluationVersion}:${selectedId ?? ''}`; if (result === 'verified' && selectedId && !lead.shares.some((s) => s.recordingId === selectedId && s.state === 'active')) await repo.createShare(selectedId, keyFor(shareOperation)); const operation = `evaluate:${lead.id}:${lead.evaluationVersion}:${result}:${selectedId ?? ''}`; await repo.completeEvaluation({ leadId: lead.id, result, recordingId: selectedId, expectedVersion: lead.evaluationVersion, idempotencyKey: keyFor(operation) }); clearKey(operation); clearKey(shareOperation); await refresh(queue, lead.id); setMessage(result === 'verified' ? 'Đã xác minh và tạo link bàn giao.' : 'Đã lưu đánh giá chưa xác minh.'); }
     catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
-  async function cancelDraft(claim: UUID) { if (!repo || !lead) return; const operation = `cancel:${claim}`; try { setBusy(true); await repo.cancelAttempt(claim, keyFor(operation)); clearKey(operation); setClaimId(null); resetComposer(); await refresh(queue, lead.id); } catch (e) { setError(errorText(e)); } finally { setBusy(false); } }
+  async function cancelDraft(claim: UUID) { if (!repo || !lead) return; const operation = `cancel:${claim}`; try { setBusy(true); await discardActiveRecorder(); await repo.cancelAttempt(claim, keyFor(operation)); clearKey(operation); setClaimId(null); resetComposer(); await refresh(queue, lead.id); } catch (e) { setError(errorText(e)); } finally { setBusy(false); } }
   async function replaceHandoff(recordingId: UUID) { if (!repo || !lead) return; const version = lead.handoff?.version ?? 0; const operation = `replace:${lead.id}:${version}:${recordingId}`; try { setBusy(true); await repo.replaceHandoff({ leadId: lead.id, recordingId, expectedVersion: version, idempotencyKey: keyFor(operation) }); clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thay bản ghi bàn giao. Link cũ vẫn gắn với bản ghi trước.'); } catch (e) { setError(errorText(e)); } finally { setBusy(false); } }
   async function revokeRecordingShare(shareId: UUID) { if (!repo || !lead) return; const operation = `revoke:${shareId}`; try { setBusy(true); await repo.revokeShare(shareId, keyFor(operation)); clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thu hồi link.'); } catch (e) { setError(errorText(e)); } finally { setBusy(false); } }
   async function changeQueue(id: LeadQueue) { if (id === queue || busy || !(await abandonCurrentWork())) return; setQueue(id); setLead(null); setError(''); setMessage(''); }
@@ -159,18 +187,19 @@ export function App() {
   async function logout() { if (!repo || busy || !(await abandonCurrentWork())) return; try { discardRecordingRef.current = true; if (recording) stopRecording(); await repo.signOut(); setActor(null); setClaimId(null); resetComposer(); } catch (e) { setError(errorText(e)); } }
 
   const pathname = window.location.pathname;
+  if (import.meta.env.DEV && pathname === '/__e2e/sheets-admin') return <SheetMappingAdmin repo={e2eSheetRepository as unknown as SupabaseRepository} onClose={() => { window.location.href = '/'; }} />;
   if (pathname.startsWith('/r/')) return <PublicRecording repo={repo} token={decodeURIComponent(pathname.slice(3))} />;
   if (!repo) return <main className="setup"><span className="brand-symbol">V</span><h1>Chưa thể mở workspace</h1><p>{init.error}</p><code>Chạy <b>npm run dev:demo</b> để dùng dữ liệu mẫu cục bộ, hoặc cấu hình VITE_APP_MODE=supabase.</code></main>;
   if (!actor) return <main className="auth-screen"><div className="auth-card"><span className="brand-symbol">V</span><p className="overline">VERIFIED CALL WORKSPACE</p><h1>Đăng nhập</h1><p>Đăng nhập tài khoản nhân viên để mở hàng đợi lead.</p>{isDemo && <div className="local-banner">Demo cục bộ · dữ liệu tổng hợp, lưu trên trình duyệt này</div>}<form onSubmit={authSubmit}><label>Email công việc<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="ten@congty.vn" /></label><label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label><button className="primary" disabled={busy}>Đăng nhập</button></form>{error && <p className="error-text" role="alert">{error}</p>}</div></main>;
 
   return <main className="app-shell">
-    <header className="app-header"><div className="brand-symbol">V</div><div className="brand-copy"><span className="overline">VERIFIED CALL WORKSPACE</span><h1>Xác minh lead</h1></div><div className="header-spacer" />{isDemo && <span className="local-banner compact">DEMO · CHỈ TRÊN MÁY NÀY</span>}<button className="user-button" onClick={() => void logout()} aria-label="Đăng xuất"><span className="user-avatar">{isDemo ? 'D' : 'NV'}</span><span>{isDemo ? 'Nhân viên demo' : email || 'Nhân viên'}</span><b>↗</b></button></header>
+    <header className="app-header"><div className="brand-symbol">V</div><div className="brand-copy"><span className="overline">VERIFIED CALL WORKSPACE</span><h1>Xác minh lead</h1></div><div className="header-spacer" />{isDemo && <span className="local-banner compact">DEMO · CHỈ TRÊN MÁY NÀY</span>}<button className="user-button" disabled={busy || saveUncertain} onClick={() => void logout()} aria-label="Đăng xuất"><span className="user-avatar">{isDemo ? 'D' : 'NV'}</span><span>{isDemo ? 'Nhân viên demo' : email || 'Nhân viên'}</span><b>↗</b></button></header>
     {init.error && <div className="alert error" role="alert">{init.error}</div>}
     <div className="workbench">
       <aside className="queue-column" aria-label="Hàng đợi lead">
         <div className="section-title"><div><span className="overline">HÀNG ĐỢI</span><h2>Lead cần gọi</h2></div><span className="queue-count">{leads.length}</span></div>
-        <nav className="queue-tabs" aria-label="Nhóm lead">{queues.map((item) => <button key={item.id} className={queue === item.id ? 'selected' : ''} onClick={() => void changeQueue(item.id)}>{item.label}</button>)}</nav>
-        <div className="queue-scroll">{leads.length ? leads.map((item) => <button key={item.id} className={`lead-row ${lead?.id === item.id ? 'active' : ''}`} onClick={() => void openLead(item)}><span className="lead-initial">{item.displayName?.slice(0, 1) ?? 'L'}</span><span className="lead-row-copy"><b>{item.displayName ?? 'Chưa có tên'}</b><small>{item.phone}</small><small className="lead-source">{item.source}</small></span><span className="attempt-mini">{item.attemptCount}/{MAX_ATTEMPTS}</span></button>) : <div className="queue-empty"><span>✓</span><b>Chưa có lead</b><small>Lead từ Sheet sẽ xuất hiện ở nhóm này.</small></div>}</div>
+        <nav className="queue-tabs" aria-label="Nhóm lead">{queues.map((item) => <button key={item.id} disabled={busy || saveUncertain} className={queue === item.id ? 'selected' : ''} onClick={() => void changeQueue(item.id)}>{item.label}</button>)}</nav>
+        <div className="queue-scroll">{leads.length ? leads.map((item) => <button key={item.id} disabled={busy || saveUncertain} className={`lead-row ${lead?.id === item.id ? 'active' : ''}`} onClick={() => void openLead(item)}><span className="lead-initial">{item.displayName?.slice(0, 1) ?? 'L'}</span><span className="lead-row-copy"><b>{item.displayName ?? 'Chưa có tên'}</b><small>{item.phone}</small><small className="lead-source">{item.source}</small></span><span className="attempt-mini">{item.attemptCount}/{MAX_ATTEMPTS}</span></button>) : <div className="queue-empty"><span>✓</span><b>Chưa có lead</b><small>Lead từ Sheet sẽ xuất hiện ở nhóm này.</small></div>}</div>
         {actor.role === 'admin' && <button className="admin-link" disabled={busy || recording || Boolean(clip) || Boolean(claimId)} onClick={() => setAdminOpen(true)}>⚙ Cấu hình Sheet</button>}
       </aside>
 
@@ -184,10 +213,10 @@ export function App() {
           <div className="call-card">
             <div className="call-card-top"><div><span className="overline">LƯỢT GỌI {claimId ? ordinal : Math.min(draftAttempt?.ordinal ?? lead.attemptCount + 1, MAX_ATTEMPTS)}/{MAX_ATTEMPTS}</span><h3>{claimId ? 'Đang xử lý lead' : draftAttempt ? 'Có lượt gọi đang dở' : 'Ghi nhận cuộc gọi'}</h3></div>{claimId ? <span className="live-state"><i /> Đang giữ lượt gọi</span> : draftAttempt ? <div className="draft-actions"><button className="primary" disabled={busy} onClick={() => void repo.resumeAttempt(draftAttempt.id).then((result) => { setClaimId(result.claimId); setOrdinal(result.ordinal); setMessage('Đã tiếp tục lượt gọi đang dở.'); }).catch((e) => setError(errorText(e)))}>Tiếp tục lượt {draftAttempt.ordinal}</button><button className="cancel-call" disabled={busy} onClick={() => void cancelDraft(draftAttempt.id)}>Hủy lượt dở</button></div> : lead.attemptCount >= MAX_ATTEMPTS ? <span className="muted-state">Đã đủ 5 lượt</span> : <button className="primary start-call" disabled={busy} onClick={() => void beginCall()}>Bắt đầu gọi <span>→</span></button>}</div>
             {claimId && <>
-              <div className="recorder"><div className="rec-icon">{recording ? <span className="pulse" /> : '◉'}</div><div className="rec-copy"><b>{recording ? 'Đang ghi âm cuộc gọi' : clip ? 'Audio đã sẵn sàng' : 'Ghi âm qua micro máy tính'}</b><small>{recording ? 'Điện thoại để loa ngoài để thu được hai chiều.' : clip ? `${clipName} · ${formatDuration(clipDuration)} · ${formatSize(clip?.size ?? 0)}` : 'Chỉ bắt đầu khi khách hàng đồng ý ghi âm.'}</small>{clip && !recording && <audio ref={previewRef} controls src={clipPreviewUrl} />}</div><div className="rec-actions">{recording ? <><time>{formatDuration(seconds)}</time><button className="stop-button" onClick={stopRecording} aria-label="Dừng ghi âm">■ Dừng</button></> : <><button className={clip ? 'outline-button' : 'record-button'} onClick={() => void startRecording()}>{clip ? 'Ghi lại' : '● Ghi âm'}</button><label className="upload-button">Tải audio<input type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" onChange={(e) => void selectFile(e)} /></label>{clip && <button className="remove-audio" onClick={() => { setClip(null); setClipName(''); setClipDuration(0); pendingUploadRef.current = null; }}>Xóa audio</button>}</>}</div></div>
-              <div className="outcome-head"><b>Kết quả cuộc gọi</b><small>Chọn một kết quả để lưu lượt này</small></div><div className="outcome-grid">{outcomes.map((item) => <button key={item.id} className={outcome === item.id ? 'chosen' : ''} onClick={() => setOutcome(item.id)}>{outcome === item.id && <span>✓</span>}{item.label}</button>)}</div>
-              <label className="note-field">Ghi chú cuộc gọi {outcome === 'other' && <b>(bắt buộc với Khác)</b>}<textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú thêm nếu cần..." rows={2} /></label>
-              <label className="verify-check"><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /><span><b>Đã xác minh</b><small>Cần audio hợp lệ và tạo link bàn giao cho khách.</small></span></label>
+              <div className="recorder"><div className="rec-icon">{recording ? <span className="pulse" /> : '◉'}</div><div className="rec-copy"><b>{recording ? 'Đang ghi âm cuộc gọi' : clip ? 'Audio đã sẵn sàng' : 'Ghi âm qua micro máy tính'}</b><small>{recording ? 'Điện thoại để loa ngoài để thu được hai chiều.' : clip ? `${clipName} · ${formatDuration(clipDuration)} · ${formatSize(clip?.size ?? 0)}` : 'Chỉ bắt đầu khi khách hàng đồng ý ghi âm.'}</small>{clip && !recording && <audio ref={previewRef} controls src={clipPreviewUrl} />}</div><div className="rec-actions">{recording ? <><time>{formatDuration(seconds)}</time><button className="stop-button" disabled={busy || saveUncertain} onClick={stopRecording} aria-label="Dừng ghi âm">■ Dừng</button></> : <><button disabled={busy || saveUncertain} className={clip ? 'outline-button' : 'record-button'} onClick={() => void startRecording()}>{clip ? 'Ghi lại' : '● Ghi âm'}</button><label className="upload-button">Tải audio<input disabled={busy || saveUncertain} type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" onChange={(e) => void selectFile(e)} /></label>{clip && <button className="remove-audio" disabled={busy || saveUncertain} onClick={() => { invalidateAudioIntent(); setClip(null); setClipName(''); setClipDuration(0); }}>Xóa audio</button>}</>}</div></div>
+              <div className="outcome-head"><b>Kết quả cuộc gọi</b><small>Chọn một kết quả để lưu lượt này</small></div><div className="outcome-grid">{outcomes.map((item) => <button key={item.id} disabled={busy || saveUncertain} className={outcome === item.id ? 'chosen' : ''} onClick={() => setOutcome(item.id)}>{outcome === item.id && <span>✓</span>}{item.label}</button>)}</div>
+              <label className="note-field">Ghi chú cuộc gọi {outcome === 'other' && <b>(bắt buộc với Khác)</b>}<textarea disabled={busy || saveUncertain} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú thêm nếu cần..." rows={2} /></label>
+              <label className="verify-check"><input type="checkbox" disabled={busy || saveUncertain} checked={verified} onChange={(e) => setVerified(e.target.checked)} /><span><b>Đã xác minh</b><small>Cần audio hợp lệ và tạo link bàn giao cho khách.</small></span></label>
               <div className="save-row"><button className="cancel-call" disabled={busy} onClick={() => { if (window.confirm('Hủy lượt gọi này? Lượt sẽ không tính vào giới hạn.')) void cancelDraft(claimId); }}>Hủy lượt</button><button className="primary save-button" disabled={busy || recording || !outcome} onClick={() => void save()}>{busy ? 'Đang lưu…' : 'Lưu kết quả & tiếp tục'} <span>→</span></button></div>
             </>}
           </div>
@@ -209,6 +238,18 @@ export function App() {
   </main>;
 }
 
+const e2eSheetColumns = [
+  { index: 0, label: 'Lead ID', header: 'lead_id', metadataId: 'stable-lead-id' },
+  { index: 1, label: 'Phone', header: 'phone', metadataId: 'stable-phone' },
+  { index: 2, label: 'Name', header: 'name', metadataId: 'stable-name' },
+];
+const e2eSheetRepository = {
+  async adminSheet<T>(input: { action?: string }): Promise<T> {
+    if (input.action === 'status') return { mapping: null, status: { writesEnabled: false, validationErrors: [], jobs: { pending: 0, running: 0, retrying: 0, blocked: 0, succeeded: 0, latestError: null } }, blockedJobs: [] } as T;
+    return { columns: e2eSheetColumns, preset: { lead_id: e2eSheetColumns[0], phone: e2eSheetColumns[1], name: e2eSheetColumns[2] } } as T;
+  },
+};
+
 function PublicRecording({ repo, token }: { repo: LeadCallRepository | null; token: string }) {
   const [info, setInfo] = useState<Awaited<ReturnType<LeadCallRepository['resolveShare']>> | null>(null); const [error, setError] = useState(''); const [downloading, setDownloading] = useState(false);
   const refresh = useCallback(async () => { if (!repo) throw new Error('Không thể mở bản ghi này.'); const next = await repo.resolveShare(token); setInfo(next); setError(''); return next; }, [repo, token]);
@@ -220,12 +261,13 @@ function PublicRecording({ repo, token }: { repo: LeadCallRepository | null; tok
       let response = await fetch(info.signedAudioUrl);
       if (response.status === 401 || response.status === 403) { const refreshed = await refresh(); response = await fetch(refreshed.signedAudioUrl); }
       if (!response.ok) throw new Error('Không thể tải bản ghi. Link có thể đã hết hạn hoặc bị thu hồi.');
-      const objectUrl = URL.createObjectURL(await response.blob()); const anchor = document.createElement('a'); anchor.href = objectUrl; anchor.download = `${info.recordingCode}.webm`; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+      const audio = await response.blob(); const objectUrl = URL.createObjectURL(audio); const anchor = document.createElement('a'); anchor.href = objectUrl; anchor.download = `${info.recordingCode}.${audioExtension(audio.type)}`; document.body.append(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
     } catch (e) { setError(errorText(e)); } finally { setDownloading(false); }
   }
   return <main className="public-page"><div className="public-card"><span className="brand-symbol">V</span><span className="overline">BẢN GHI CUỘC GỌI</span>{error ? <><h1>Không mở được bản ghi</h1><p>{error}</p>{repo && <button className="outline-button" onClick={() => void refresh().catch((e) => setError(errorText(e)))}>Thử tải lại</button>}</> : info ? <><h1>{info.recordingCode}</h1><p>Ghi lúc {new Date(info.recordedAt).toLocaleString('vi-VN')} · {formatDuration(info.durationSeconds)}</p>{repo && 'getRecordingBlob' in repo && info.signedAudioUrl.startsWith('blob:') && <div className="local-public-note">Link demo chỉ nghe được trên trình duyệt này.</div>}<audio controls autoPlay src={info.signedAudioUrl} onError={() => void refresh().catch((e) => setError(errorText(e)))}>Trình duyệt không hỗ trợ phát audio.</audio><button className="download-link" disabled={downloading} onClick={() => void download()}>{downloading ? 'Đang tải…' : 'Tải bản ghi xuống ↓'}</button><small>Link này chỉ hiển thị thông tin của bản ghi âm.</small></> : <p>Đang tải bản ghi…</p>}</div></main>;
 }
 function formatDuration(value: number) { const seconds = Math.floor(value || 0); return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`; }
 function formatSize(value: number) { return value < 1024 * 1024 ? `${Math.ceil(value / 1024)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
+function audioExtension(contentType: string) { const type = contentType.split(';')[0].trim().toLowerCase(); return ({ 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/aac': 'aac' } as Record<string, string>)[type] ?? 'audio'; }
 function safeLink(value: string) { try { const url = new URL(value, location.origin); return ['https:', 'http:'].includes(url.protocol) ? url.href : undefined; } catch { return undefined; } }
 function errorText(error: unknown) { return error instanceof Error ? error.message : 'Có lỗi xảy ra. Vui lòng thử lại.'; }

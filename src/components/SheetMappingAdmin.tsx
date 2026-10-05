@@ -58,7 +58,7 @@ export function SheetMappingAdmin({ repo, onClose }: { repo: SupabaseRepository;
     } catch (e) { setError(e instanceof Error ? e.message : 'Không thể chuẩn bị bản pilot.'); }
     finally { setBusy(false); }
   }
-  function changeColumn(role: string, metadataId: string) { setValidation(null); setFields((current) => current.map((field) => field.role === role ? { ...field, column: columns.find((column) => column.metadataId === metadataId)! } : field)); }
+  function changeColumn(role: string, metadataId: string) { setValidation(null); setFields((current) => current.map((field) => field.role === role ? { ...field, column: metadataId ? columns.find((column) => column.metadataId === metadataId) ?? { metadataId: '', currentLabel: '', header: '' } : { metadataId: '', currentLabel: '', header: '' } } : field)); }
   function mapping(): SheetMapping { return { spreadsheetId: spreadsheetId.trim(), tabId: Number(tabId), tabTitle, headerRow: Number(headerRow), schemaFingerprint: validation?.schemaFingerprint ?? '', fields: fields.filter((field) => Boolean(field.column.metadataId)), validatedAt: null, writesEnabled: false }; }
   async function validate() {
     setBusy(true); setError(''); setStatus('');

@@ -26,6 +26,17 @@ function readState(): State {
 const saved = readState();
 const state: State = { ...saved, saves: saved.saves ?? {}, sharesByKey: saved.sharesByKey ?? {}, replacementsByKey: saved.replacementsByKey ?? {}, uploadTargets: saved.uploadTargets ?? {} };
 function persist() { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
+function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once') {
+  if (localStorage.getItem(`verified-call-e2e-fault:${name}`) !== 'once') return false;
+  localStorage.removeItem(`verified-call-e2e-fault:${name}`); return true;
+}
+function addDemoLeadForE2EIfRequested() {
+  if (localStorage.getItem('verified-call-e2e-add-lead-on-list') !== 'once') return;
+  localStorage.removeItem('verified-call-e2e-add-lead-on-list');
+  const lead = structuredClone(seed[0]); lead.id = '00000000-0000-4000-8000-000000000199' as UUID;
+  lead.displayName = 'Lead mới đồng bộ'; lead.phone = '+00-000-000-0199'; lead.source = 'Demo refresh'; lead.createdAt = iso();
+  state.leads.push(lead); persist();
+}
 function id() { return crypto.randomUUID() as UUID; }
 function iso() { return new Date().toISOString() as never; }
 function summary(lead: LeadDetails): LeadSummary { const { id, displayName, phone, source, createdAt, attemptCount, queue, claimedBy } = lead; return { id, displayName, phone, source, createdAt, attemptCount, queue, claimedBy }; }
@@ -35,7 +46,7 @@ export class DemoRepository implements LeadCallRepository {
   async getSession() { return { actor: { id: ACTOR, role: 'admin' as const } }; }
   async signIn() {}
   async signOut() {}
-  async listLeads(queue: LeadQueue) { return state.leads.filter((lead) => lead.queue === queue).map(summary); }
+  async listLeads(queue: LeadQueue) { addDemoLeadForE2EIfRequested(); return state.leads.filter((lead) => lead.queue === queue).map(summary); }
   async getLead(leadId: UUID) { const lead = state.leads.find((x) => x.id === leadId); if (!lead) throw new RepositoryError('Không tìm thấy lead demo.', 'NOT_FOUND'); return structuredClone(lead); }
   async claimAttempt(leadId: UUID, idempotencyKey: string) {
     const lead = state.leads.find((x) => x.id === leadId); if (!lead) throw new RepositoryError('Không tìm thấy lead.', 'NOT_FOUND');
@@ -77,14 +88,16 @@ export class DemoRepository implements LeadCallRepository {
       if (share) { handoff = { version: (lead.handoff?.version ?? 0) + 1, recordingId: share.recordingId, shareId: share.id, changedAt: iso(), changedBy: ACTOR }; lead.handoff = handoff; }
     }
     const result: SaveOutcomeResult = { attempt: structuredClone(a), attemptCount: lead.attemptCount, duplicate: false, evaluationVersion: input.evaluation ? lead.evaluationVersion : null, handoff: structuredClone(handoff) };
-    state.saves[input.idempotencyKey] = structuredClone(result); persist(); return result;
+    state.saves[input.idempotencyKey] = structuredClone(result); persist();
+    if (consumeDemoFault('save-lost-reply-once')) throw new Error('Demo fault: response lost after the save committed.');
+    return result;
   }
   async completeEvaluation(input: { leadId: UUID; result: 'verified' | 'unverified'; recordingId?: UUID; expectedVersion: number }) {
     const lead = state.leads.find((x) => x.id === input.leadId)!; if (input.expectedVersion !== lead.evaluationVersion) throw new RepositoryError('Đánh giá đã thay đổi. Tải lại lead.', 'VERSION_CONFLICT');
     if (input.result === 'verified') { const share = lead.shares.find((s) => s.recordingId === input.recordingId && s.state === 'active'); if (!share) throw new RepositoryError('Bản ghi âm cần có link chia sẻ đang hoạt động.', 'SHARE_REQUIRED'); lead.handoff = { version: lead.evaluationVersion + 1, recordingId: share.recordingId, shareId: share.id, changedAt: iso(), changedBy: ACTOR }; }
     lead.evaluation = input.result; lead.evaluationVersion += 1; persist(); return { version: lead.evaluationVersion };
   }
-  async createShare(recordingId: UUID, idempotencyKey: string) { const replay = state.sharesByKey[idempotencyKey]; if (replay) return structuredClone(replay); const lead = state.leads.find((x) => x.recordings.some((r) => r.id === recordingId && r.state === 'ready')); if (!lead) throw new RepositoryError('Bản ghi âm chưa sẵn sàng.', 'READY_RECORDING_REQUIRED'); const token = crypto.randomUUID().replaceAll('-', ''); const share: RecordingShare = { id: id(), recordingId, state: 'active', publicUrl: `${location.origin}/r/${token}`, createdAt: iso(), createdBy: ACTOR, revokedAt: null }; lead.shares.push(share); state.tokens[token] = { leadId: lead.id, recordingId }; const result = { shareId: share.id, publicUrl: share.publicUrl }; state.sharesByKey[idempotencyKey] = result; persist(); return result; }
+  async createShare(recordingId: UUID, idempotencyKey: string) { const replay = state.sharesByKey[idempotencyKey]; if (replay) return structuredClone(replay); if (consumeDemoFault('create-share-once')) throw new Error('Demo fault: share creation unavailable.'); const lead = state.leads.find((x) => x.recordings.some((r) => r.id === recordingId && r.state === 'ready')); if (!lead) throw new RepositoryError('Bản ghi âm chưa sẵn sàng.', 'READY_RECORDING_REQUIRED'); const token = crypto.randomUUID().replaceAll('-', ''); const share: RecordingShare = { id: id(), recordingId, state: 'active', publicUrl: `${location.origin}/r/${token}`, createdAt: iso(), createdBy: ACTOR, revokedAt: null }; lead.shares.push(share); state.tokens[token] = { leadId: lead.id, recordingId }; const result = { shareId: share.id, publicUrl: share.publicUrl }; state.sharesByKey[idempotencyKey] = result; persist(); return result; }
   async replaceHandoff(input: { leadId: UUID; recordingId: UUID; expectedVersion: number; idempotencyKey: string }) { const replay = state.replacementsByKey[input.idempotencyKey]; if (replay) return structuredClone(replay); const lead = state.leads.find((x) => x.id === input.leadId)!; if (input.expectedVersion !== (lead.handoff?.version ?? 0)) throw new RepositoryError('Link bàn giao đã thay đổi. Tải lại lead.', 'VERSION_CONFLICT'); const share = await this.createShare(input.recordingId, input.idempotencyKey); const updated = lead.shares.find((x) => x.id === share.shareId)!; const version = (lead.handoff?.version ?? 0) + 1; lead.handoff = { version, recordingId: input.recordingId, shareId: updated.id, changedAt: iso(), changedBy: ACTOR }; lead.evaluation = 'verified'; lead.evaluationVersion += 1; const result = { version, shareId: updated.id }; state.replacementsByKey[input.idempotencyKey] = result; persist(); return result; }
   async revokeShare(shareId: UUID) { for (const lead of state.leads) { const share = lead.shares.find((s) => s.id === shareId); if (share) { share.state = 'revoked'; share.revokedAt = iso(); persist(); return; } } }
   async resolveShare(token: string) { const ref = state.tokens[token]; if (!ref) throw new RepositoryError('Link không hợp lệ hoặc đã bị thu hồi.', 'NOT_FOUND'); const lead = state.leads.find((x) => x.id === ref.leadId)!; const share = lead.shares.find((x) => x.recordingId === ref.recordingId && x.publicUrl.endsWith(token)); const recording = lead.recordings.find((x) => x.id === ref.recordingId)!; if (!share || share.state !== 'active') throw new RepositoryError('Link đã bị thu hồi.', 'SHARE_REVOKED'); return { recordingCode: `REC-${recording.id.slice(-6).toUpperCase()}`, recordedAt: recording.recordedAt!, durationSeconds: recording.durationSeconds!, signedAudioUrl: URL.createObjectURL((await this.getRecordingBlob(recording.id))!), expiresAt: new Date(Date.now() + 300_000).toISOString() as never }; }
