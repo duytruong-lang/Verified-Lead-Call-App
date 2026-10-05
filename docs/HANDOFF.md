@@ -14,7 +14,7 @@ This is an implementation handoff draft. Do not treat it as release approval. So
 
 The frontend fix `2a22ee7` passed typecheck, lint, Vitest (3 tests), production build, demo Playwright (9 tests), and Sol's independent frontend retest. Its build reported the Vite bundle-size advisory above 500 kB.
 
-The Supabase local test was run once against the active synthetic local stack and completed staff login, fake-microphone capture, upload, verified save, public playback/download, and revoke. The test has since been hardened to use a fresh anonymous browser context, assert media readiness/playback progress/nonempty download, and prove revoked access is denied; rerun that exact hardened test after the current additive backend migration window before marking the evidence complete.
+After local migrations 003–006 and the backend RPC harness completed, the hardened Supabase browser test passed against the loopback stack: staff login, fake-microphone capture, private upload, verified save, anonymous playback progress, nonempty download, and denied access after revoke. It used an isolated UUID lead and removed its database rows and storage object during cleanup. The downloaded synthetic sample is kept only in ignored `test-results/local-supabase-sample.webm` for backend parser checks. This proves the local integrated stack only.
 
 Not verified: real Google Sheets access or writes, Cloudflare Pages deployment, production auth/storage policies, physical phone speaker capture, production recording retention, or Astra acceptance. Local-stack results must not be described as cloud integration evidence.
 
@@ -24,4 +24,4 @@ See [docs/OPERATIONS.md](OPERATIONS.md) for demo/local Supabase commands, operat
 
 ## Acceptance gate
 
-Keep status pending until Sol has retested the final integrated SHA, Astra records acceptance evidence, the hardened local Supabase browser flow passes on integrated backend code, and release/environment/rollback owners are recorded. Then replace this draft status with the final SHA and exact evidence without adding credentials or real lead details.
+Keep status pending until Sol retests the final integrated SHA, Astra records acceptance evidence, and release/environment/rollback owners are recorded. The hardened local Supabase browser flow has passed on the integrated local backend; it does not establish a cloud deployment or Google Sheets acceptance. Then replace this draft status with the final SHA and exact evidence without adding credentials or real lead details.

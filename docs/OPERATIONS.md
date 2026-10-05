@@ -17,7 +17,7 @@ Trong checkout đã tích hợp backend, dùng hai terminal. Terminal 1 khởi �
 
 ```sh
 npm ci
-npx supabase start
+npx supabase start -x realtime,imgproxy,studio,logflare,vector,supavisor,postgres-meta
 npx supabase db reset --local --yes
 node scripts/prepare-local-functions-env.mjs
 npx supabase functions serve --env-file .supabase/functions.env

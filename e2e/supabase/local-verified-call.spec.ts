@@ -79,7 +79,7 @@ test('local Supabase: staff records, verifies, anonymous client listens/download
     expect(await publicPage.evaluate(() => Object.keys(localStorage).some((key) => key.endsWith('-auth-token')))).toBe(false);
     await expect(publicPage.getByText(leadName)).toHaveCount(0);
     await expect(publicPage.getByText('+00-000-000-0999')).toHaveCount(0);
-    await publicPage.locator('audio').click({ position: { x: 16, y: 20 } });
+    await publicPage.locator('audio').evaluate(async (audio: HTMLAudioElement) => { audio.currentTime = 0; await audio.play(); });
     await expect.poll(() => publicPage.locator('audio').evaluate((audio: HTMLAudioElement) => audio.currentTime)).toBeGreaterThan(0.1);
     const downloadPromise = publicPage.waitForEvent('download');
     await publicPage.getByRole('button', { name: /Tải bản ghi xuống/ }).click();
@@ -88,6 +88,7 @@ test('local Supabase: staff records, verifies, anonymous client listens/download
     const downloadedFile = await download.path();
     expect(downloadedFile).toBeTruthy();
     expect((await stat(downloadedFile!)).size).toBeGreaterThan(100);
+    await download.saveAs('test-results/local-supabase-sample.webm');
 
     await page.getByRole('button', { name: 'Đã kết thúc' }).click();
     await page.getByRole('button', { name: new RegExp(leadName) }).click();
