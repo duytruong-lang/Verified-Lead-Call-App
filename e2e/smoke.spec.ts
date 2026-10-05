@@ -179,6 +179,8 @@ test('optional Sheet mapping can be cleared without crashing the form', async ({
   await page.getByLabel('Spreadsheet ID hoặc link').fill('synthetic-spreadsheet-id');
   await page.getByRole('button', { name: 'Đọc cấu trúc Sheet' }).click();
   await expect(page.getByLabel('Cột cho name')).toBeVisible();
+  await expect(page.getByLabel('Cột cho legacy_outcome').locator('..')).toContainText('Lead input');
+  await expect(page.getByLabel('Cột cho outcome_1').locator('..')).toContainText('Kết quả từ app');
   const nameMapping = page.getByLabel('Cột cho name');
   await expect(nameMapping).toHaveValue('stable-name');
   await nameMapping.selectOption('');
@@ -199,4 +201,22 @@ test('refreshes incoming leads on focus without replacing the selected in-progre
   await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
   await expect(page.getByLabel(/Ghi chú cuộc gọi/)).toHaveValue('Đang trao đổi, giữ lại ghi chú');
   await expect(page.getByText('Đang giữ lượt gọi')).toBeVisible();
+});
+
+test('renews an expired signed upload target with the same recording identity', async ({ page }) => {
+  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
+  await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();
+  await page.locator('input[type="file"]').setInputFiles(wavFixture());
+  await expect(page.getByText(/Audio đã sẵn sàng/)).toBeVisible();
+  await page.getByRole('button', { name: 'Có quan tâm' }).click();
+  await page.evaluate(() => localStorage.setItem('verified-call-e2e-fault:expired-upload-target-once', 'once'));
+  await page.getByRole('button', { name: /Lưu kết quả/ }).click();
+  await expect(page.getByText('Đã lưu kết quả. Sheet sẽ đồng bộ nền.')).toBeVisible();
+  const verification = await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('verified-call-demo-v1') ?? '{}') as { leads: Array<{ displayName: string; recordings: Array<{ id: string }> }> };
+    const lead = state.leads.find((item) => item.displayName === 'Nguyễn Minh Anh');
+    return { recordings: lead?.recordings.length, uploadTargetRefreshes: localStorage.getItem('verified-call-e2e-upload-target-refresh-count') };
+  });
+  expect(verification.recordings).toBe(1);
+  expect(verification.uploadTargetRefreshes).toBe('1');
 });

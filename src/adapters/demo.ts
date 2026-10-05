@@ -26,7 +26,7 @@ function readState(): State {
 const saved = readState();
 const state: State = { ...saved, saves: saved.saves ?? {}, sharesByKey: saved.sharesByKey ?? {}, replacementsByKey: saved.replacementsByKey ?? {}, uploadTargets: saved.uploadTargets ?? {} };
 function persist() { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
-function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once') {
+function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once' | 'expired-upload-target-once') {
   if (localStorage.getItem(`verified-call-e2e-fault:${name}`) !== 'once') return false;
   localStorage.removeItem(`verified-call-e2e-fault:${name}`); return true;
 }
@@ -60,10 +60,18 @@ export class DemoRepository implements LeadCallRepository {
   async uploadRecordingBlob(input: { recordingId: UUID; blob: Blob }) { const db = await audioDb(); await new Promise<void>((resolve, reject) => { const tx = db.transaction('audio', 'readwrite'); tx.objectStore('audio').put(input.blob, input.recordingId); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); }); }
   async getRecordingBlob(recordingId: UUID) { const db = await audioDb(); return new Promise<Blob | undefined>((resolve, reject) => { const req = db.transaction('audio').objectStore('audio').get(recordingId); req.onsuccess = () => resolve(req.result as Blob | undefined); req.onerror = () => reject(req.error); }); }
   async beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number; idempotencyKey: string }) {
-    const replay = state.uploadTargets[input.idempotencyKey]; if (replay) return structuredClone(replay);
+    const replay = state.uploadTargets[input.idempotencyKey]; if (replay) {
+      if (Date.parse(replay.expiresAt) <= Date.now()) {
+        const renewed = { ...replay, expiresAt: new Date(Date.now() + 900_000).toISOString() as never };
+        state.uploadTargets[input.idempotencyKey] = renewed;
+        const refreshCount = Number(localStorage.getItem('verified-call-e2e-upload-target-refresh-count') ?? 0) + 1;
+        localStorage.setItem('verified-call-e2e-upload-target-refresh-count', String(refreshCount)); persist(); return structuredClone(renewed);
+      }
+      return structuredClone(replay);
+    }
     const a = this.findAttempt(input.claimId); if (a.leadId !== input.leadId || a.state !== 'draft') throw new RepositoryError('Lượt gọi không còn hiệu lực.', 'CLAIM_CONFLICT');
     const recording: Recording = { id: id(), leadId: input.leadId, attemptId: input.claimId, state: 'uploading', objectKey: input.filename, contentType: input.contentType, sizeBytes: input.sizeBytes, durationSeconds: null, recordedAt: iso(), createdBy: ACTOR, checksum: null };
-    state.leads.find((x) => x.id === input.leadId)!.recordings.push(recording); const target: UploadTarget = { recordingId: recording.id, objectKey: recording.id, uploadUrl: `demo://${recording.id}`, expiresAt: new Date(Date.now() + 900_000).toISOString() as never }; state.uploadTargets[input.idempotencyKey] = target; persist(); return target;
+    state.leads.find((x) => x.id === input.leadId)!.recordings.push(recording); const expiry = consumeDemoFault('expired-upload-target-once') ? Date.now() - 1_000 : Date.now() + 900_000; const target: UploadTarget = { recordingId: recording.id, objectKey: recording.id, uploadUrl: `demo://${recording.id}`, expiresAt: new Date(expiry).toISOString() as never }; state.uploadTargets[input.idempotencyKey] = target; persist(); return target;
   }
   async completeRecordingUpload(input: { recordingId: UUID; sizeBytes: number; durationSeconds: number }) {
     for (const lead of state.leads) { const recording = lead.recordings.find((x) => x.id === input.recordingId); if (recording) { recording.sizeBytes = input.sizeBytes; recording.durationSeconds = input.durationSeconds; recording.state = 'ready'; persist(); return structuredClone(recording); } }
