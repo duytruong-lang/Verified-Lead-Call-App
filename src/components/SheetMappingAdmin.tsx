@@ -9,7 +9,11 @@ type DiscoverResult = { columns: RawColumn[]; preset: Record<string, RawColumn |
 type BlockedJob = { id: string; lead_id: string; state: string; last_error: string | null; created_at: string; attempts: number; desired_version: number; fencing_token: number };
 type SheetAdminResult = { validation?: Validation; mapping?: SheetMapping | null; status?: string | { writesEnabled: boolean; validationErrors: string[]; jobs: { pending: number; running: number; retrying: number; blocked: number; succeeded: number; latestError: string | null } }; jobs?: { pending: number; retrying: number; blocked: number; latestError: string | null; updatedAt: string | null }; blockedJobs?: BlockedJob[] };
 const requiredRoles = new Set(['phone', 'lead_id']);
-const outputRoles = /outcome|attempt|evaluation|verified|recording|handoff|sync|note|result/i;
+const outputRoles = new Set([
+  'outcome_1', 'outcome_2', 'outcome_3', 'outcome_4', 'outcome_5',
+  'attempt_time_1', 'attempt_time_2', 'attempt_time_3', 'attempt_time_4', 'attempt_time_5',
+  'evaluation', 'evaluation_time', 'evaluation_note', 'recording_link',
+]);
 const fieldRoles = ['lead_id', 'phone', 'name', 'email', 'source', 'created_at', 'form_answer_1', 'form_answer_2', 'form_answer_3', 'form_answer_4', 'outcome_1', 'outcome_2', 'outcome_3', 'outcome_4', 'outcome_5', 'attempt_time_1', 'attempt_time_2', 'attempt_time_3', 'attempt_time_4', 'attempt_time_5', 'evaluation', 'evaluation_time', 'evaluation_note', 'recording_link', 'legacy_outcome', 'legacy_attempt_count', 'legacy_evaluation', 'legacy_verified_time', 'legacy_recording_link', 'legacy_pic', 'platform_lead_id'];
 function extractSpreadsheetId(value: string) { return value.match(/\/spreadsheets\/d\/([^/]+)/)?.[1] ?? value.trim(); }
 function statusJobs(result: SheetAdminResult) { return result.jobs ?? (typeof result.status === 'object' ? result.status.jobs : undefined); }
@@ -19,11 +23,11 @@ function mapPreset(result: DiscoverResult, saved?: SheetMapping | null) {
   const byId = new Map(stableColumns.map((column) => [column.metadataId, column]));
   const presetFields: SheetFieldMapping[] = Object.entries(result.preset).flatMap(([role, column]) => {
     const stable = column?.metadataId ? byId.get(column.metadataId) : undefined;
-    return stable && !(outputRoles.test(role) && stable.formula) ? [{ role, column: stable, required: requiredRoles.has(role), direction: role === 'lead_id' ? 'both' : outputRoles.test(role) ? 'output' : 'input' }] : [];
+    return stable && !(outputRoles.has(role) && stable.formula) ? [{ role, column: stable, required: requiredRoles.has(role), direction: role === 'lead_id' ? 'both' : outputRoles.has(role) ? 'output' : 'input' }] : [];
   });
   const savedFields = saved ? saved.fields.flatMap((field) => { const column = byId.get(field.column.metadataId); return column ? [{ ...field, column }] : []; }) : [];
   const selected = new Map((savedFields.length ? savedFields : presetFields).map((field) => [field.role, field]));
-  const fields: SheetFieldMapping[] = fieldRoles.map((role) => selected.get(role) ?? { role, column: { metadataId: '', currentLabel: '', header: '' }, required: requiredRoles.has(role), direction: role === 'lead_id' ? 'both' : outputRoles.test(role) ? 'output' : 'input' });
+  const fields: SheetFieldMapping[] = fieldRoles.map((role) => selected.get(role) ?? { role, column: { metadataId: '', currentLabel: '', header: '' }, required: requiredRoles.has(role), direction: role === 'lead_id' ? 'both' : outputRoles.has(role) ? 'output' : 'input' });
   return { columns: stableColumns, fields };
 }
 

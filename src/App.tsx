@@ -146,10 +146,23 @@ export function App() {
     if (readyRecordingRef.current?.attemptId === claimId) return readyRecordingRef.current;
     let pending = pendingUploadRef.current;
     if (!pending || pending.claimId !== claimId || pending.blob !== clip) { pending = { claimId, blob: clip, idempotencyKey: crypto.randomUUID(), uploaded: false }; pendingUploadRef.current = pending; }
-    if (!pending.target) pending.target = await repo.beginRecordingUpload({ leadId: lead.id, claimId, filename: clipName, contentType: clip.type || 'audio/webm', sizeBytes: clip.size, idempotencyKey: pending.idempotencyKey });
+    const beginTarget = () => repo.beginRecordingUpload({ leadId: lead.id, claimId, filename: clipName, contentType: clip.type || 'audio/webm', sizeBytes: clip.size, idempotencyKey: pending!.idempotencyKey });
+    let renewedTarget = false;
+    if (!pending.target || Date.parse(pending.target.expiresAt) <= Date.now() + 5_000) { renewedTarget = Boolean(pending.target); pending.target = await beginTarget(); }
+    if (!pending.uploaded && Date.parse(pending.target.expiresAt) <= Date.now() + 5_000) {
+      pending.target = await beginTarget(); renewedTarget = true;
+      if (Date.parse(pending.target.expiresAt) <= Date.now()) throw new Error('URL tải audio vẫn hết hạn sau khi làm mới. Hãy thử lưu lại.');
+    }
     if (!pending.uploaded) {
       if (isDemo && 'uploadRecordingBlob' in repo) await (repo as typeof repo & { uploadRecordingBlob(input: { recordingId: UUID; blob: Blob }): Promise<void> }).uploadRecordingBlob({ recordingId: pending.target.recordingId, blob: clip });
-      else { const response = await fetch(pending.target.uploadUrl, { method: 'PUT', headers: { 'Content-Type': clip.type || 'audio/webm', 'x-upsert': 'false' }, body: clip }); if (!response.ok && response.status !== 409) throw new Error(`Tải audio lên thất bại (${response.status}). Bạn có thể bấm lưu lại để thử lại.`); }
+      else {
+        const put = (url: string) => fetch(url, { method: 'PUT', headers: { 'Content-Type': clip.type || 'audio/webm', 'x-upsert': 'false' }, body: clip });
+        let response = await put(pending.target.uploadUrl);
+        if ((response.status === 401 || response.status === 403) && !renewedTarget) {
+          pending.target = await beginTarget(); renewedTarget = true; response = await put(pending.target.uploadUrl);
+        }
+        if (!response.ok && response.status !== 409) throw new Error(`Tải audio lên thất bại (${response.status}). Bạn có thể bấm lưu lại để thử lại.`);
+      }
       pending.uploaded = true;
     }
     const ready = await repo.completeRecordingUpload({ recordingId: pending.target.recordingId, sizeBytes: clip.size, durationSeconds: Math.round(clipDuration) });
@@ -242,11 +255,13 @@ const e2eSheetColumns = [
   { index: 0, label: 'Lead ID', header: 'lead_id', metadataId: 'stable-lead-id' },
   { index: 1, label: 'Phone', header: 'phone', metadataId: 'stable-phone' },
   { index: 2, label: 'Name', header: 'name', metadataId: 'stable-name' },
+  { index: 3, label: 'Legacy outcome', header: 'legacy_outcome', metadataId: 'stable-legacy-outcome' },
+  { index: 4, label: 'Outcome 1', header: 'outcome_1', metadataId: 'stable-outcome-1' },
 ];
 const e2eSheetRepository = {
   async adminSheet<T>(input: { action?: string }): Promise<T> {
     if (input.action === 'status') return { mapping: null, status: { writesEnabled: false, validationErrors: [], jobs: { pending: 0, running: 0, retrying: 0, blocked: 0, succeeded: 0, latestError: null } }, blockedJobs: [] } as T;
-    return { columns: e2eSheetColumns, preset: { lead_id: e2eSheetColumns[0], phone: e2eSheetColumns[1], name: e2eSheetColumns[2] } } as T;
+    return { columns: e2eSheetColumns, preset: { lead_id: e2eSheetColumns[0], phone: e2eSheetColumns[1], name: e2eSheetColumns[2], legacy_outcome: e2eSheetColumns[3], outcome_1: e2eSheetColumns[4] } } as T;
   },
 };
 
