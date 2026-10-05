@@ -25,7 +25,7 @@ Phân biệt kiểm tra do Sol báo cáo ở gate cuối với kiểm tra Astra 
 
 | Tiêu chí | Bằng chứng và kết quả | Giới hạn |
 | --- | --- | --- |
-| Nền tảng build | Sol: typecheck, lint, build và 45 unit tests đạt tại SHA đã chốt. | Build có cảnh báo kích thước bundle trên 500 kB; không chặn build. |
+| Nền tảng build | Sol: typecheck, lint, build và 45 unit tests đạt tại SHA đã chốt. | Build chỉ chứng minh biên dịch, chưa xác nhận deployment Cloudflare/production. |
 | Frontend nghiệp vụ | Sol: 11 Playwright demo tests đạt, gồm upload/ghi micro giả, lưu, note bắt buộc cho `other`, audio không phát được, chặn lượt sáu, retry cùng key, thay clip sau lỗi share, hủy recording, mapping/identity conflict, refresh lead và gia hạn upload URL. | Demo/IndexedDB, không chứng minh backend hay thiết bị thật. |
 | Backend thật trên máy | Sol: harness chạy qua local Auth/PostgreSQL RPC/private Storage/Edge Functions đạt; kiểm tra quyền, tranh claim, validation audio, replay/idempotency, handoff history và revoke. | Supabase loopback, dữ liệu synthetic; chưa kiểm chứng cấu hình cloud. |
 | Nhân viên → người nhận | Astra trực tiếp chạy `npx playwright test --config=playwright.supabase.config.ts`: **1/1 đạt**, 5,6 giây. Staff đăng nhập, micro giả → upload private → lưu Verified; browser context không đăng nhập phát audio có thời gian tiến, tải file không rỗng; context mới bị từ chối sau thu hồi. Test dọn lead/audio riêng của lần chạy. Sol cũng đã chạy thành công luồng này ở gate cuối. | Có bằng chứng playback thực trong browser; không chứng minh chất lượng thu thoại vật lý hai chiều. Signed URL đã cấp có thể tồn tại đến hết năm phút. |
