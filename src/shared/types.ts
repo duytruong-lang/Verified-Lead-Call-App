@@ -18,7 +18,7 @@ export type RecordingState = 'uploading' | 'validating' | 'ready' | 'rejected' |
 export type ShareState = 'active' | 'revoked';
 export type AttemptState = 'draft' | 'completed' | 'canceled';
 export type ActorRole = 'admin' | 'staff' | 'service';
-export type SyncState = 'pending' | 'running' | 'succeeded' | 'retrying' | 'blocked';
+export type SyncState = 'pending' | 'running' | 'succeeded' | 'retrying' | 'blocked' | 'superseded';
 
 export interface Actor {
   id: UUID;

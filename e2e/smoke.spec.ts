@@ -189,6 +189,15 @@ test('optional Sheet mapping can be cleared without crashing the form', async ({
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
+test('shows blocked Sheet identity conflicts and only clears after server-confirmed repair', async ({ page }) => {
+  await page.goto('/__e2e/sheets-admin');
+  await expect(page.getByText(/Xung đột ID lead abcdef12/)).toBeVisible();
+  await expect(page.getByText(/máy chủ xác nhận ID duy nhất/)).toBeVisible();
+  await page.getByRole('button', { name: 'Đối soát ID an toàn' }).click();
+  await expect(page.getByRole('status')).toContainText(/Đã xác minh và gỡ chặn định danh lead abcdef12/);
+  await expect(page.getByText(/Xung đột ID lead abcdef12/)).toHaveCount(0);
+});
+
 test('refreshes incoming leads on focus without replacing the selected in-progress draft', async ({ page }) => {
   await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
   await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();

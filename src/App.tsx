@@ -258,9 +258,11 @@ const e2eSheetColumns = [
   { index: 3, label: 'Legacy outcome', header: 'legacy_outcome', metadataId: 'stable-legacy-outcome' },
   { index: 4, label: 'Outcome 1', header: 'outcome_1', metadataId: 'stable-outcome-1' },
 ];
+let e2eIdentityConflict = true;
 const e2eSheetRepository = {
-  async adminSheet<T>(input: { action?: string }): Promise<T> {
-    if (input.action === 'status') return { mapping: null, status: { writesEnabled: false, validationErrors: [], jobs: { pending: 0, running: 0, retrying: 0, blocked: 0, succeeded: 0, latestError: null } }, blockedJobs: [] } as T;
+  async adminSheet<T>(input: { action?: string; leadId?: string }): Promise<T> {
+    if (input.action === 'status') return { mapping: null, status: { writesEnabled: false, validationErrors: [], jobs: { pending: 0, running: 0, retrying: 0, blocked: 0, succeeded: 0, latestError: null } }, blockedJobs: [], identityConflicts: e2eIdentityConflict ? [{ leadId: 'abcdef12-3456-7890-abcd-ef1234567890', conflict: 'UUID thiếu hoặc trùng trong cột đã ánh xạ', syncState: 'blocked' }] : [] } as T;
+    if (input.action === 'repair-identity') { e2eIdentityConflict = false; return { repaired: true, leadId: input.leadId } as T; }
     return { columns: e2eSheetColumns, preset: { lead_id: e2eSheetColumns[0], phone: e2eSheetColumns[1], name: e2eSheetColumns[2], legacy_outcome: e2eSheetColumns[3], outcome_1: e2eSheetColumns[4] } } as T;
   },
 };
