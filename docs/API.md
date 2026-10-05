@@ -1,6 +1,6 @@
-# Shared API contract (foundation)
+# Shared API contract
 
-This document defines the domain boundary for frontend, Supabase Edge Functions, and Sheets sync. It is a foundation contract; endpoint deployment and authorization enforcement are not yet implemented.
+This document defines the domain boundary for the frontend, Supabase Edge Functions, and Sheets sync. Staff operations are exposed by the authenticated `call-api` Edge Function and enforced again by PostgreSQL RPCs/RLS. Public playback uses `public-recording`; Sheet worker operations use service-only RPCs and functions.
 
 ## Adapter selection
 
@@ -23,7 +23,7 @@ The UI depends on `LeadCallRepository` in `src/shared/repository.ts`. A future S
 | `claimAttempt` | lead ID, idempotency key | Creates a `draft` attempt and exclusive 15-minute claim; heartbeat extends the lease. Claim ID is the attempt ID. An expired draft can be resumed by its owner/admin or canceled. Cancel does not consume an attempt. |
 | `resumeAttempt` / `cancelAttempt` | claim ID; cancel also needs idempotency key | Resume renews the lease without changing attempt count. Cancel releases claim and retains audit history; completed attempts cannot be canceled. |
 | `saveOutcome` | claim ID, outcome, optional note, optional ready recording ID, optional evaluation + expected version, idempotency key | One database transaction validates claim and ceiling, checks `other` note and recording ownership/readiness, attaches audio, completes the attempt, increments once, and optionally stores evaluation/handoff. Same key replays original response; different key against completed attempt conflicts. Failure leaves draft/count unchanged. Upload must validate before this call. |
-| `beginRecordingUpload` | lead/claim, filename, content type, size, idempotency key | Reject >50 MB, unsupported type, or mismatched lead/claim; retries with the same key return the same recording and a fresh private upload target. |
+| `beginRecordingUpload` | lead/claim, filename, content type, size, required idempotency key | Reject >50 MB, unsupported type, or mismatched lead/claim; retries with the same key return the same recording and a fresh private upload target. |
 | `completeRecordingUpload` | recording ID, object metadata | Validate playable audio and duration <=30 minutes; attach ready recording idempotently. |
 | `completeEvaluation` | lead ID, verified/unverified, recording ID if verified, expected version, idempotency key | Compare-and-swap version; stale calls conflict. Allowed after attempt five. Verified requires ready playable recording plus non-revoked share pinned to it. Evaluation and Sheet sync version persist in one transaction. |
 | `createShare` | recording ID, idempotency key | Opaque durable public token and `/r/:token`; no lead PII in public response. Store only its hash for lookup and server-encrypted token ciphertext for rebuilding the URL during Sheet retries. Encryption key stays in server secrets. |
@@ -37,7 +37,7 @@ The UI depends on `LeadCallRepository` in `src/shared/repository.ts`. A future S
 
 `SheetColumnRef.metadataId` is the stable column identity; current A1 label and header are for diagnostics only. Resolve it against grid metadata before each write. Duplicate/missing metadata, duplicate stable lead UUIDs, changed fingerprint, or ambiguous role resolution blocks writes for that mapping and alerts admin. Never key leads by row number, phone, or a platform ID. For a row without the app UUID, create one in the app, then write it to the mapped stable-ID cell using compare-before-write. If another writer populated it, or duplicate UUIDs exist, stop and reconcile. After sorting/inserting rows, resolve the row again by UUID before writing. Platform IDs are optional source metadata and never the authoritative lead key.
 
-Workers serialize writes per lead using a lease and monotonically increasing fencing token. Since Google Sheets does not provide compare-and-swap for arbitrary cells, check lease ownership and desired version immediately before writing, then read back and reconcile. Expired leases can be reclaimed; stale workers must stop before writing. If a write times out ambiguously, mark the job blocked for reconciliation instead of blindly retrying. Other retryable errors use bounded exponential backoff while retaining the latest app state.
+Workers acquire a singleton global worker lease before polling or writing, then serialize output per lead using a lease and monotonically increasing fencing token. The global lease expires to recover crashed workers; each invocation uses a unique worker ID. Since Google Sheets does not provide compare-and-swap for arbitrary cells, check lease ownership and desired version immediately before writing, then read back and reconcile. Expired leases can be reclaimed; stale workers must stop before writing. If a write times out ambiguously, mark the job blocked for reconciliation instead of blindly retrying. A blocked job fences later versions for the same lead until an explicit readback reconciliation confirms the Sheet matches the current app snapshot. Other retryable errors use bounded exponential backoff while retaining the latest app state. Import cursors advance by compare-and-swap and reset when the mapping fingerprint changes.
 
 ## Initial shared types
 
