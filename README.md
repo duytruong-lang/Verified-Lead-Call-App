@@ -44,4 +44,4 @@ npm run test:e2e
 - [Hướng dẫn frontend](docs/FRONTEND.md)
 - [API và shared contracts](docs/API.md)
 - [Kế hoạch sản phẩm](docs/PLAN.md)
-- [Bản bàn giao đang chờ review](docs/HANDOFF.md)
+- [Bản bàn giao](docs/HANDOFF.md)
