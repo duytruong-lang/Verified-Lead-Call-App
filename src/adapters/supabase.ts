@@ -5,6 +5,15 @@ import type { LeadDetails, LeadQueue, LeadSummary, PublicRecordingInfo, SaveOutc
 
 type EdgeFunctionName = 'list-leads' | 'get-lead' | 'claim-attempt' | 'resume-attempt' | 'cancel-attempt' | 'save-outcome' | 'begin-recording-upload' | 'complete-recording-upload' | 'complete-evaluation' | 'create-share' | 'replace-handoff' | 'revoke-share' | 'resolve-share' | 'validate-sheet-mapping' | 'enqueue-sheet-sync';
 
+async function repositoryFunctionError(error: Error, fallbackCode: string): Promise<never> {
+  let code = fallbackCode; let message = error.message;
+  const context = (error as Error & { context?: unknown }).context;
+  if (context instanceof Response) {
+    try { const body = await context.clone().json() as { error?: { code?: string; message?: string } }; code = body.error?.code ?? code; message = body.error?.message ?? message; } catch { /* use SDK message */ }
+  }
+  throw new RepositoryError(message, code);
+}
+
 export class SupabaseRepository implements LeadCallRepository {
   private constructor(private readonly client: SupabaseClient) {}
 
@@ -56,7 +65,7 @@ export class SupabaseRepository implements LeadCallRepository {
     return this.invoke('save-outcome', { ...input });
   }
 
-  beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number }): Promise<import('../shared/types').UploadTarget> {
+  beginRecordingUpload(input: { leadId: UUID; claimId: UUID; filename: string; contentType: string; sizeBytes: number; idempotencyKey: string }): Promise<import('../shared/types').UploadTarget> {
     return this.invoke('begin-recording-upload', input);
   }
 
@@ -89,13 +98,32 @@ export class SupabaseRepository implements LeadCallRepository {
   }
 
   resolveShare(token: string): Promise<PublicRecordingInfo> {
-    return this.invoke('resolve-share', { token });
+    return this.invokePublic('public-recording', { token });
+  }
+
+  async adminSheet<T>(body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke<{ data?: T; error?: { code?: string; message?: string } }>('sheets-admin', { body });
+    if (error) return repositoryFunctionError(error, 'SHEET_ADMIN_ERROR');
+    if (!data) throw new RepositoryError('Sheet admin returned no response.', 'EMPTY_RESPONSE');
+    if (data.error) throw new RepositoryError(data.error.message ?? 'Sheet admin request failed.', data.error.code ?? 'SHEET_ADMIN_ERROR');
+    return (data.data === undefined ? data : data.data) as T;
   }
 
   private async invoke<T>(name: EdgeFunctionName, body: Record<string, unknown>): Promise<T> {
-    const { data, error } = await this.client.functions.invoke<T>(name, { body });
-    if (error) throw new RepositoryError(error.message, 'BACKEND_ERROR');
-    if (data === null) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
-    return data;
+    const { data, error } = await this.client.functions.invoke<{ data?: T; error?: { code?: string; message?: string } }>('call-api', { body: { operation: name, ...body } });
+    if (error) return repositoryFunctionError(error, 'BACKEND_ERROR');
+    if (!data) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    if (data.error) throw new RepositoryError(data.error.message ?? 'Backend request failed.', data.error.code ?? 'BACKEND_ERROR');
+    if (data.data === undefined) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    return data.data;
+  }
+
+  private async invokePublic<T>(name: 'public-recording', body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke<{ data?: T; error?: { code?: string; message?: string } }>(name, { body });
+    if (error) return repositoryFunctionError(error, 'BACKEND_ERROR');
+    if (!data) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    if (data.error) throw new RepositoryError(data.error.message ?? 'Backend request failed.', data.error.code ?? 'BACKEND_ERROR');
+    if (data.data === undefined) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    return data.data;
   }
 }
