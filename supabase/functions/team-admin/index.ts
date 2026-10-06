@@ -42,7 +42,6 @@ const errorStatus: Record<string, number> = {
   member_link_uncertain: 409,
   member_link_expired: 409,
   member_link_replaced: 409,
-  member_link_replaced: 409,
   idempotency_key_reused: 409,
 };
 
