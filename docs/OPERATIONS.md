@@ -76,13 +76,13 @@ Sheet nhận kết quả bất đồng bộ; database app là hồ sơ chính. T
 
 ## 6. Rollout Cloudflare Pages
 
-Đây là hướng dẫn deploy, không phải xác nhận app đã được deploy.
+Đây là hướng dẫn deploy, không phải xác nhận app đã được deploy. Với dự án cloud mới của `trieumanh0405`, dùng quy trình đầy đủ tại [HANDOFF-TRIEUMANH0405.md](HANDOFF-TRIEUMANH0405.md), gồm xác nhận project ref, migrations, Auth, secret mới, deploy đủ năm Edge Functions và bootstrap Auth Admin vào cả `profiles` lẫn `team_members`.
 
 1. Chạy đủ checks trong README và local Supabase browser flow. Pilot bằng Supabase project/Sheet riêng, có admin/staff test accounts và quyền ghi rõ ràng.
 2. Cloudflare Pages build command: `npm ci && npm run build`; output directory: `dist`. Không cấu hình service role key trong Pages variables.
 3. Thêm `VITE_APP_MODE=supabase`, `VITE_SUPABASE_URL` và `VITE_SUPABASE_ANON_KEY` làm build-time variables của đúng environment. Anon key là client key và vẫn chịu RLS; mọi mutation/role check phải ở server.
-4. Triển khai migrations, Edge Functions, Storage policy và worker/cron theo release backend; đặt `PUBLIC_APP_URL` đúng origin của Pages và giữ `SHARE_ENCRYPTION_KEY` bền vững. Không đổi encryption key đã dùng để tạo token.
-5. Mở URL Pages, đăng nhập staff thử, tạo bản ghi synthetic có sự cho phép, kiểm tra link/nghe/tải/thu hồi và xác minh Sheets chỉ ghi lên bản pilot copy. Theo dõi job blocked trước khi mời operator.
+4. Đặt `PUBLIC_APP_URL`/`APP_ORIGIN` đúng origin của Pages và giữ hai encryption keys bền vững. Không bật Sheets/Cron nếu chưa có Sheet pilot copy được phép và service account riêng.
+5. Chạy đầy đủ checklist cloud trong handoff trước khi mời operator. Xác nhận bằng chứng theo đúng project ref và Pages deployment; local CI/mocks không chứng minh tích hợp cloud.
 
 ### Rollback
 
