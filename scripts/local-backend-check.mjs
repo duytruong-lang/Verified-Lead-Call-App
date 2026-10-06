@@ -68,6 +68,16 @@ async function invoke(client, operation, args = {}) {
   return { data, error: null };
 }
 
+async function invokeTeam(client, body) {
+  const { data, error } = await client.functions.invoke('team-admin', { body });
+  if (error) {
+    let payload = {};
+    try { payload = await error.context.clone().json(); } catch { /* no JSON response */ }
+    return { error: payload.error ?? { code: 'TEAM_ADMIN_ERROR', message: error.message }, data: null };
+  }
+  return { data, error: data?.error ?? null };
+}
+
 function assert(condition, message) { if (!condition) throw new Error(`FAIL: ${message}`); console.log(`PASS ${message}`); }
 function wav(seconds = 1) {
   const sampleRate = 8000; const samples = seconds * sampleRate; const bytes = new Uint8Array(44 + samples * 2); const view = new DataView(bytes.buffer);
@@ -397,6 +407,34 @@ const recoveryInput = { operation: 'issue-member-link', memberId: inviteLink.mem
 const recovery = await admin.functions.invoke('team-admin', { body: recoveryInput });
 const recoveryRetry = await admin.functions.invoke('team-admin', { body: recoveryInput });
 assert(!recovery.error && !recoveryRetry.error && recovery.data.data.actionLink === recoveryRetry.data.data.actionLink, 'recovery link retry replays encrypted token without another Auth generation');
+
+// Move only this tagged synthetic recovery link and its member-scoped cooldown
+// into the expired state so expiry/replacement recovery can be tested quickly.
+const expireSyntheticLink = async (actorId, key) => {
+  const operation = await service.from('team_member_link_operations').update({ expires_at: new Date(Date.now() - 1000).toISOString() })
+    .eq('actor_id', actorId).eq('member_id', inviteLink.member.id).eq('kind', 'recovery').eq('idempotency_key', key);
+  if (operation.error) throw operation.error;
+  const lock = await service.from('team_member_link_locks').update({ uncertain_until: new Date(Date.now() - 1000).toISOString(), lease_expires_at: new Date(Date.now() - 1000).toISOString() }).eq('member_id', inviteLink.member.id);
+  if (lock.error) throw lock.error;
+};
+const releaseSyntheticCooldown = async () => {
+  const lock = await service.from('team_member_link_locks').update({ uncertain_until: new Date(Date.now() - 1000).toISOString(), lease_expires_at: new Date(Date.now() - 1000).toISOString() }).eq('member_id', inviteLink.member.id);
+  if (lock.error) throw lock.error;
+};
+await expireSyntheticLink(users.admin.id, recoveryInput.idempotencyKey);
+const expiredReplay = await invokeTeam(admin, { ...recoveryInput });
+assert(expiredReplay.error?.code === 'LINK_EXPIRED', 'expired action link returns a definitive LINK_EXPIRED code');
+const recoveryAfterExpiry = await invokeTeam(admin, { ...recoveryInput, idempotencyKey: `recovery-after-expiry-${tag}` });
+assert(!recoveryAfterExpiry.error && recoveryAfterExpiry.data.data.actionLink, 'operator can issue a valid recovery link with a new key after LINK_EXPIRED');
+
+await releaseSyntheticCooldown();
+const replacedByAdminB = await invokeTeam(adminB, { operation: 'issue-member-link', memberId: inviteLink.member.id, kind: 'recovery', idempotencyKey: `recovery-admin-b-${tag}` });
+assert(!replacedByAdminB.error && replacedByAdminB.data.data.actionLink, 'second active admin can issue a newer recovery link after prior expiry');
+const replacedReplay = await invokeTeam(admin, { operation: 'issue-member-link', memberId: inviteLink.member.id, kind: 'recovery', idempotencyKey: `recovery-after-expiry-${tag}` });
+assert(replacedReplay.error?.code === 'LINK_REPLACED', 'a superseded action link returns a definitive LINK_REPLACED code');
+await releaseSyntheticCooldown();
+const recoveryAfterReplacement = await invokeTeam(admin, { operation: 'issue-member-link', memberId: inviteLink.member.id, kind: 'recovery', idempotencyKey: `recovery-after-replacement-${tag}` });
+assert(!recoveryAfterReplacement.error && recoveryAfterReplacement.data.data.actionLink, 'operator can issue a valid recovery link with a new key after LINK_REPLACED');
 
 const staffRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
 const staffARow = staffRoster.data.data.members.find((member) => member.email === users['staff-a'].email);
