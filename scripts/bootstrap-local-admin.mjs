@@ -17,7 +17,7 @@ const values = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
 }));
 const apiUrl = values.API_URL;
 if (!apiUrl || !values.ANON_KEY || !values.SERVICE_ROLE_KEY) throw new Error('Start the local Supabase project first.');
-if (!['localhost', '127.0.0.1', '::1'].includes(new URL(apiUrl).hostname)) throw new Error('Refusing to bootstrap an admin outside loopback Supabase.');
+if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(apiUrl).hostname)) throw new Error('Refusing to bootstrap an admin outside loopback Supabase.');
 const credentialPath = resolve(cwd, '.supabase/local-admin-credentials.json');
 if (existsSync(credentialPath)) {
   const saved = JSON.parse(readFileSync(credentialPath, 'utf8'));

@@ -14,7 +14,7 @@ const env = Object.fromEntries(status.split(/\r?\n/).flatMap((line) => {
   const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
   return match ? [[match[1], match[2].replace(/^['"]|['"]$/g, '')]] : [];
 }));
-if (!env.API_URL || !env.SERVICE_ROLE_KEY || !['localhost', '127.0.0.1', '::1'].includes(new URL(env.API_URL).hostname)) {
+if (!env.API_URL || !env.SERVICE_ROLE_KEY || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(env.API_URL).hostname)) {
   throw new Error('Refusing cleanup unless Supabase is running on loopback.');
 }
 const service = createClient(env.API_URL, env.SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });

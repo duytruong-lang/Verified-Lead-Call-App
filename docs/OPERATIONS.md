@@ -33,6 +33,19 @@ npx playwright test --config=playwright.supabase.config.ts
 
 Test cấu hình Supabase tách khỏi demo CI. Nó từ chối URL không phải `localhost`, `127.0.0.1` hoặc `::1`; service role chỉ dùng để tạo lead tổng hợp riêng cho lần test và dọn storage/database sau đó. Luồng browser đăng nhập staff, ghi micro giả, upload, lưu Verified, mở link trong browser context chưa đăng nhập, phát/tải audio rồi thu hồi link. Không chạy test với dữ liệu lead thật.
 
+### Chuẩn bị workspace Supabase local cho pilot thủ công
+
+Chạy harness backend và browser trước khi thêm lead pilot vì harness yêu cầu database chưa có lead, mapping hoặc sync job. Browser test tự dọn invite mà nó tạo; sau đó dọn đúng fixtures do harness ghi trong manifest. Các lệnh chỉ chấp nhận API loopback, không gửi email và không ghi Google Sheet:
+
+```sh
+node scripts/cleanup-local-backend-check.mjs
+node scripts/bootstrap-local-admin.mjs <email-admin-pilot>
+node scripts/prepare-local-pilot.mjs
+npm run dev -- --mode supabase --host 127.0.0.1
+```
+
+Bootstrap chỉ tạo Admin đầu tiên khi chưa có Admin hoạt động; mật khẩu ngẫu nhiên được lưu trong file ignored `.supabase/local-admin-credentials.json` với quyền đọc hạn chế. Script pilot tạo mười lead synthetic có ID cố định và source marker riêng. Chạy lại không ghi đè lead đã có hoặc call state; xung đột ID/source sẽ dừng để người vận hành kiểm tra. `.env.supabase.local` chỉ chứa mode, URL loopback và anon key; không đưa service-role key vào frontend. Link mời/khôi phục được Admin tự sao chép và gửi qua kênh nội bộ phù hợp; app không gửi email.
+
 ## 3. Quy trình nhân viên
 
 1. Đăng nhập bằng tài khoản được cấp, chọn lead và đọc câu trả lời form trước khi gọi.
