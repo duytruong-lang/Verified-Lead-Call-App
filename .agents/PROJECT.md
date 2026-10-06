@@ -13,7 +13,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 - There is no automatic SIM calling or phone interception. PC microphone quality for both sides still needs a physical-call pilot.
 - Original reference UI was Vocaroo. Approved scope is a lead workspace with a simple recorder, not a Vocaroo clone.
 - Approved MVP excludes Zalo notification, CRM, assignment, reminders/SLA, customer approval portal, and AI scoring.
-- User approved UI/auth/access implementation, then chose Supabase local first; cloud is deferred. No real Sheet mutation is authorized in the active local phase.
+- User approved the local UI/Auth/access implementation, then a GitHub handoff to `trieumanh0405`: official website branding, merge through PR, verified private backup and removal of this project’s local Supabase/Colima runtime. The recipient will provision their own Supabase project; no cloud or real Sheet mutation is authorized here.
 - Original Sheet reference was `RAW-DATA-CALL-CENTER`. Its current contents, permissions and automations have not been validated by this final local acceptance. Keep real Sheet IDs/data outside this public memory; use a separately authorized pilot copy.
 
 ## Architecture and navigation
@@ -57,4 +57,4 @@ Ignored local files: `.supabase/functions.env`, `.supabase/backend-test-users.js
 
 ## Working agreement
 
-Luna implements/fixes/tests/docs, Sol independently reviews/QCs, Astra accepts/hands off. Root coordinates contracts/integration/evidence. Use requested model identifiers from `AGENTS.md`, maximum four active including coordinator, separate worktrees for parallel tasks. Do not replace models silently. Do not push directly to `main`; integration requires CI and Sol review. Read actual status first rather than relying on an old chat, stale process IDs, or this snapshot alone.
+GPT-6 Luna subagents implement/fix/test/document and perform approved local operations; GPT-6.1 Sol independently reviews, QCs and accepts the final handoff. Root coordinates contracts/integration/evidence. Use requested model identifiers from `AGENTS.md`, maximum four active including coordinator, separate worktrees for parallel tasks. Do not replace models silently. Do not push directly to `main`; integration requires CI and Sol review. Read actual status first rather than relying on an old chat, stale process IDs, or this snapshot alone.
