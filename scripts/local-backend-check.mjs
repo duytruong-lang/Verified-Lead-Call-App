@@ -489,6 +489,9 @@ const staleSave = await invoke(uploadStaff, 'save-outcome', { claimId: uploadCla
 const uploadLeadAfterDisable = await service.from('leads').select('attempt_count,claimed_by').eq('id', uploadLeadId).single();
 const uploadAttemptAfterDisable = await service.from('contact_attempts').select('state').eq('id', uploadClaim.data.data.claimId).single();
 assert(Boolean(staleSave.error) && !uploadLeadAfterDisable.error && uploadLeadAfterDisable.data.attempt_count === 0 && uploadLeadAfterDisable.data.claimed_by === null && !uploadAttemptAfterDisable.error && uploadAttemptAfterDisable.data.state === 'canceled', 'stale post-disable save is denied, draft is canceled, and attempt count remains zero');
+const roleChangeShare = await invoke(a, 'create-share', { recordingId: recording.id, idempotencyKey: `role-change-share-${tag}` });
+if (roleChangeShare.error) throw roleChangeShare.error;
+const roleChangeShareToken = roleChangeShare.data.data.publicUrl.split('/r/')[1];
 const draftForViewer = await invoke(a, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `viewer-downgrade-claim-${tag}` });
 assert(!draftForViewer.error, 'staff can claim a lead before viewer downgrade');
 const downgrade = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: staffARow.id, role: 'viewer', expectedVersion: staffARow.version, idempotencyKey: `downgrade-staff-${tag}` } });
@@ -502,7 +505,7 @@ const staleVersion = await admin.functions.invoke('team-admin', { body: { operat
 assert(Boolean(staleVersion.error), 'stale member version cannot overwrite a newer role change');
 const restoreStaff = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: staffARow.id, role: 'staff', expectedVersion: downgrade.data.data.version, idempotencyKey: `restore-staff-${tag}` } });
 assert(!restoreStaff.error && restoreStaff.data.data.role === 'staff', 'synthetic browser-test staff is restored after role enforcement checks');
-const persistentPublicShare = await fetch(`${rootUrl}/functions/v1/public-recording`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: anonKey }, body: JSON.stringify({ token }) });
+const persistentPublicShare = await fetch(`${rootUrl}/functions/v1/public-recording`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: anonKey }, body: JSON.stringify({ token: roleChangeShareToken }) });
 assert(persistentPublicShare.ok, 'public recording share remains resolvable after its owner changes role');
 
 const currentAdminRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
