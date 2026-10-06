@@ -73,3 +73,10 @@ Các mục sau còn **chưa kiểm chứng/chưa được triển khai** và c�
 5. Chủ vận hành, quota/cost, backup, retention và quy trình xử lý sự cố trước khi đưa dữ liệu thật vào hệ thống.
 
 Bước kế tiếp là pilot có một nhân viên và một bản Sheet copy sau khi có tài khoản, quyền và chủ môi trường rõ ràng. Không cần hoàn thành các mục cloud để dùng bản demo/local đã nghiệm thu.
+
+
+## 2026-10-06 — UI 1990/Auth/access accepted locally
+
+The approved 1990/Hallmark interface, real Supabase email/password sign-in, manual invitation/recovery lifecycle and database-enforced Admin/Staff/Viewer membership were accepted by Astra at `a02871f` after Sol QC. Foundation checks, 46 unit tests, 17 demo browser tests, 117 local backend assertions, five Deno entrypoint checks, four helper tests and four real Supabase browser flows passed. See [PILOT-LOCAL-QC.md](PILOT-LOCAL-QC.md) for evidence and limitations; [LOCAL-PILOT.md](LOCAL-PILOT.md) for operator instructions.
+
+The user selected Supabase local first. No Supabase cloud pilot, Cloudflare deployment, live Sheet/Cron or physical two-way audio acceptance is claimed. The first local admin and ten synthetic leads are ready; credentials remain ignored and private.

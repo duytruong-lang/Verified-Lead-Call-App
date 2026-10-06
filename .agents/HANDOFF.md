@@ -1,42 +1,38 @@
 # Session handoff — 2026-10-06, Asia/Ho_Chi_Minh
 
-## Current objective
+## Objective and authorization
 
-The user approved implementation of the 1990/Hallmark UI, real email/password authentication, manual invite/recovery links, and Admin/Staff/Viewer membership enforcement. The latest instruction is **Supabase local first; cloud later**. Continue implementation and local verification. Do not create or mutate a cloud project or real Sheet during this local phase.
+The user approved the 1990/Hallmark UI, real email/password sign-in, manual invite/recovery links and Admin/Staff/Viewer membership enforcement, then selected **Supabase local first; cloud later**. Continue the local implementation and verification. No cloud project or real Sheet mutation is part of this phase. Montserrat is the approved temporary font exception.
 
-Read `AGENTS.md`, `.agents/PROJECT.md`, `.agents/PLAN.md`, `.agents/DECISIONS.md`, and `docs/API.md`. Git/code are authoritative. `docs/HANDOFF.md` records the previously accepted local MVP; those historical checks do not certify the current membership changes.
+Read `AGENTS.md`, `.agents/PROJECT.md`, `.agents/PLAN.md`, `.agents/DECISIONS.md` and `docs/API.md`. Git/code are authoritative; historical MVP evidence in `docs/HANDOFF.md` is separate from this release.
 
-## Git and implementation state
+## Git and source
 
-- Repository: https://github.com/duytruong-lang/Verified-Lead-Call-App.
-- PR #6 current-head CI passed at `33d25e8`; merged main is `67f06ac0e30615f86100cc6522ca5083a8299053`.
-- Current integration branch: `codex/pilot-ui-access`, founded on merged main. Foundation commit `e642d1c` establishes UI dependencies, shadcn aliases and membership contracts. `1a1aee7` adds canonical member identity to session context.
-- Original synchronized checkout has some historical Git refs/objects whose reads block indefinitely. Preserve its `.git`, private files and historical worktrees. A clean clone under `/private/tmp/verified-call-pilot-repo` is the current execution checkout. This temporary checkout must be copied/persisted back to the project before final handoff.
-- Isolated Luna worktrees: `/private/tmp/verified-call-pilot-backend` and `/private/tmp/verified-call-pilot-frontend`. Coordinator owns contracts, manifests, lockfiles and migration integration. Check these branch tips on resume; do not assume an agent's uncommitted files were integrated.
-- New attached managed worktrees `pilot-access` and `pilot-interface` were not used after Git reads stalled. Do not remove old worktrees automatically.
+- PR #6 passed CI at `33d25e8` and merged as `67f06ac`.
+- Integration branch: `codex/pilot-ui-access`; draft PR #7: https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7.
+- Original synchronized checkout has blocking reads of historical Git objects/refs and some source files. Preserve its `.git`, old worktrees and private configuration. The clean execution checkout is `/private/tmp/verified-call-pilot-repo`; isolated Luna worktrees are `/private/tmp/verified-call-pilot-backend` and `/private/tmp/verified-call-pilot-frontend`.
+- Final source must be persisted to the original project with reversible backups before handoff. Do not delete/replace historical Git metadata to fix the blocked reads.
+- Coordinator owns contracts, manifests/lockfiles and migrations. Luna implements; Sol independently reviews/QCs; Astra accepts after Sol. Check actual branch tips and uncommitted files on resume.
 
-## Current verification boundary
+## Runtime and evidence in progress
 
-- Foundation baseline: 45 Vitest tests passed after dependency/contracts setup.
-- Sol reviewed the draft membership SQL twice; remaining findings are being addressed. No current membership SQL runtime evidence exists yet.
-- Frontend/backend implementations and new tests are in progress. No claim of completed local UI/Auth/access acceptance is valid until integrated checks, Sol QC and Astra acceptance are recorded.
-- Historical accepted baseline checks remain in `docs/HANDOFF.md`: foundation, 45 unit tests, 11 demo browser tests, real local Supabase harness/browser recording flow. That runtime was from a previous environment and was unavailable when this session resumed.
+Docker/Colima/Deno are installed. The first newly created empty VM failed with disk I/O when the host had only 1.1 GB free. After space was freed, that empty VM was rebuilt; no existing app database was reset. The current Supabase local stack is healthy at `http://127.0.0.1:54321` with project ID `verified-lead-call-local`. Colima mounts both the clean execution checkout and original project. Host free space remains limited; check it before downloads.
 
-## Runtime and blocker
+Eleven migrations are applied, including Viewer role, transactional membership and a follow-up serializing Sheet mapping writes with Admin revocation. Edge Functions are served from the execution checkout with ignored `.supabase/functions.env`; preserve its encryption keys. Local core services exclude Realtime, Studio, analytics and pooler to conserve resources.
 
-Docker, Colima and Deno were missing and were installed. A fresh Colima VM was created solely for this local project. Supabase start downloaded Postgres but failed with host-backed disk I/O errors; the Mac had only about 1.1 GB free. No existing app database was reset. The new VM was stopped to avoid further writes. The user said they will free disk space and report back. Resume runtime only after checking actual space and VM/filesystem health; retain any existing private encryption key.
+Astra accepted local UI/Auth/access at `a02871f`, after Sol delta QC at `c9bb1dd`; application/backend source is identical between those commits. Final evidence: typecheck/lint/build, 46 Vitest tests, 17 demo Playwright tests, 117 actual local backend assertions, five frozen Deno entrypoint checks, four Deno helper tests and four actual Supabase browser flows passed. See `docs/PILOT-LOCAL-QC.md` for exact boundaries. Actual browser tests used a dependency symlink with font allowlist warnings; the separate demo visual suite verified loaded Montserrat and responsive layouts.
 
-Supabase CLI is available through npx. The current installation is version 2.119.0. CLI may need sandbox escalation for its user telemetry cache. Create migration filenames through `supabase migration new`; add `viewer` in its own committed transaction before membership SQL uses it. Do not run database reset merely to resume.
+All tracked harness/browser fixtures were cleaned and their test memberships disabled, retaining Auth/profile/audit history. The requested first admin was bootstrapped locally with a random password stored in ignored `.supabase/local-admin-credentials.json` (`0600`). Ten synthetic pilot leads are present; a second seed run inserted zero and preserved all ten. Do not run the global harness on this populated pilot database.
 
-## Pending bounded actions
+## Bounded next actions
 
-1. Integrate Luna changes and final reviewed migration without overlapping file ownership.
-2. Run foundation and demo browser checks; after disk space is available, recover the fresh local runtime and run real Auth/DB/Storage/Edge/access tests with synthetic users and leads.
-3. Sol independent integrated QC, then Astra acceptance. Record failures and environment limits plainly.
-4. Persist source/evidence in the original project and branch/PR, never directly push main. No implementation PR has been created yet.
+1. Open `docs/LOCAL-PILOT.md` for operator login/start commands and `docs/PILOT-LOCAL-QC.md` for accepted scope.
+2. Keep the database and encryption keys. Resume local services without `db reset`; test recording with the operator's physical phone/microphone when ready.
+3. Source/runtime persistence to the original checkout and PR #7 current-head CI are coordinator release steps; consult the final release note below rather than assuming they ran from this paragraph.
+4. Cloud/real Sheet remain deferred. Obtain cloud capacity, staff email, service-account Sheet permissions and a physical-call operator before that separate phase.
 
 ## Private configuration and deferred work
 
-Ignored `.supabase/functions.env`, `.supabase/backend-test-users.json` and `.env.supabase.e2e` are private, machine-specific files. Never print or commit credentials, raw invite/recovery links, real lead data or recordings. Keep `SHARE_ENCRYPTION_KEY` stable.
+Ignored `.supabase/functions.env`, `.supabase/backend-test-users.json`, `.supabase/local-admin-credentials.json`, `.env.supabase.local` and `.env.supabase.e2e` contain machine-specific configuration/credentials. Never print or commit their contents, raw invite/recovery links or recordings. Browser configuration contains only the anon key, never service role credentials.
 
-The user's cloud admin email was provided privately; do not hardcode it into fixtures. Supabase rejected new free project creation due to account quota, so no cloud project was created. Railway was discussed only; no migration was authorized. Cloudflare, real Google Sheet/Cron, staff invitation and physical two-way phone recording remain deferred and unverified.
+The requested admin email is in the user conversation; do not hardcode it into fixtures/docs. Supabase rejected free cloud project creation due account quota, so no cloud project exists for this pilot. Railway was only discussed. Cloudflare deployment, real Google Sheet/Cron, a staff email and physical two-way phone recording remain deferred and unverified.

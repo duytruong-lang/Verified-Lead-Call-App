@@ -34,7 +34,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 
 ## Critical behavior already implemented
 
-The list below describes the accepted baseline. UI/auth/member changes are being integrated; use `.agents/HANDOFF.md` for their current evidence. Approved membership scope is one workspace, roles Admin/Staff/Viewer, statuses pending/active/disabled, manual invite/recovery links and access disable that retains historical attribution and public recording shares.
+The original baseline and new UI/auth/member scope are accepted locally; use `.agents/HANDOFF.md` and `docs/PILOT-LOCAL-QC.md` for release-specific evidence. Membership is one workspace, roles Admin/Staff/Viewer, statuses pending/active/disabled, manual invite/recovery links and access disable that retains historical attribution and public recording shares. Cloud/real Sheet/physical audio remain unverified.
 
 - Four queues, oldest-first defaults, periodic/focus refresh while preserving drafts.
 - At most five completed contact attempts. Re-recording, uploads and retry do not increment the count; final evaluation after the fifth remains available.

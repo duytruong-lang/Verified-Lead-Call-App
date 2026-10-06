@@ -8,8 +8,8 @@ User approved implementation on 2026-10-06, then explicitly selected **Supabase 
 
 1. Baseline: PR #6 current-head CI succeeded and PR merged as `67f06ac`.
 2. Foundation: shared contracts, shadcn aliases/config and dependencies created.
-3. Luna frontend/backend work in isolated worktrees; coordinator owns contracts, manifests and migration integration.
-4. Sol independent review/QC, then Astra local acceptance.
+3. Completed: Luna frontend/backend work integrated from isolated worktrees; coordinator owns contracts, manifests and migrations.
+4. Completed: Sol independent review/QC and Astra local acceptance at `a02871f`. See `docs/PILOT-LOCAL-QC.md` for final checks.
 5. Cloud and live Sheet pilot deferred by user; no deployment or real Sheet mutation now.
 
 ## Verification
@@ -18,7 +18,7 @@ Run typecheck, lint, Vitest, build, demo Playwright and local Supabase Auth/DB/S
 
 ## Risks
 
-Original synchronized checkout has historical Git refs/objects blocking reads. Use clean local execution checkout under `/private/tmp/verified-call-pilot-repo`, preserve original history/private files, and copy integrated changes back before handoff. Local Docker/Colima/Deno were missing; a fresh synthetic local runtime is being prepared. Cloud project creation was rejected by Supabase free quota; no cloud pilot resource was created.
+Original synchronized checkout has historical Git refs/objects blocking reads. Use clean local execution checkout under `/private/tmp/verified-call-pilot-repo`, preserve original history/private files, and copy integrated changes back before handoff. Local Docker/Colima/Deno are installed; the local stack is healthy with an admin and ten synthetic pilot leads. Host free space remains limited. Cloud project creation was rejected by Supabase free quota; no cloud pilot resource was created.
 
 ## What is needed later
 

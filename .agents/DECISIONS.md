@@ -2,7 +2,7 @@
 
 These decisions describe the approved and implemented MVP. They do not authorize a new deployment or real-data integration.
 
-1. **Local-first now.** User has no Supabase/Cloudflare accounts and selected local preparation. Cloud and real Sheet pilot remain a separate stage requiring accounts and explicit target/permissions.
+1. **Local-first now.** User selected local preparation; Supabase cloud creation later hit the free project quota. Cloud and real Sheet pilot remain deferred, requiring capacity and explicit target/permissions.
 2. **Physical phone + PC microphone.** Staff manually call their company SIM on speaker, click record/upload in the webapp. No automatic SIM interception/recording. Physical two-way audio quality is an outstanding pilot criterion.
 3. **Database is the business record.** Google Sheet remains the input/output surface; save succeeds before asynchronous output. Sheet errors must not lose a completed call.
 4. **Supabase private Storage, not Drive.** Stable app share links in Sheet resolve to five-minute signed playback. Public views expose no lead profile. Every link pins one recording; replacement/revoke are explicit and audited.
