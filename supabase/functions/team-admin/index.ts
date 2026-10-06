@@ -1,5 +1,5 @@
 import { clients, json, requireIdentity } from '../_shared/http.ts';
-import { decryptMemberToken, encryptMemberToken, inputFingerprint, isMemberRole, memberActionLink, normalizeTeamEmail } from '../_shared/team-links.ts';
+import { decryptMemberToken, encryptMemberToken, inputFingerprint, isMemberRole, memberActionLink, normalizeTeamEmail, type MemberTokenPayload } from '../_shared/team-links.ts';
 
 type LinkKind = 'invite' | 'recovery';
 type MemberRow = {
@@ -41,6 +41,7 @@ const errorStatus: Record<string, number> = {
   member_link_in_progress: 409,
   member_link_uncertain: 409,
   member_link_expired: 409,
+  member_link_replaced: 409,
   member_link_replaced: 409,
   idempotency_key_reused: 409,
 };
@@ -155,6 +156,9 @@ async function issueLink(args: {
   if (kind === 'invite' && member.status !== 'pending') throw new Error('member_link_not_allowed');
   if (kind === 'recovery' && member.status !== 'active') throw new Error('member_link_not_allowed');
 
+  // Validate known configuration before reserving the durable issuance gate.
+  const encryptionKey = requiredSecret('TEAM_LINK_ENCRYPTION_KEY');
+  const baseUrl = appUrl();
   const leaseToken = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + linkTtlSeconds() * 1000).toISOString();
   // Keep a member-wide quarantine past the link lifetime if generateLink's
@@ -165,8 +169,8 @@ async function issueLink(args: {
     p_lease_token: leaseToken, p_uncertain_until: uncertainUntil,
   });
   if (reservation.state === 'ready' && reservation.ciphertext && reservation.expiresAt) {
-    const tokenHash = await decryptMemberToken(reservation.ciphertext, requiredSecret('TEAM_LINK_ENCRYPTION_KEY'));
-    return { member: toMember(member), kind, actionLink: memberActionLink(appUrl(), tokenHash, kind), expiresAt: reservation.expiresAt };
+    const token = await decryptMemberToken(reservation.ciphertext, encryptionKey);
+    return { member: toMember(member), kind, actionLink: memberActionLink(baseUrl, token.tokenHash, token.verificationType), expiresAt: reservation.expiresAt };
   }
 
   let authUserId = member.auth_user_id;
@@ -179,12 +183,18 @@ async function issueLink(args: {
   }
 
   let tokenHash: string;
+  let verificationType: LinkKind = kind;
   if (authUserId) {
-    const generated = await generateLink(service, kind, member.email);
+    if (kind === 'invite') {
+      const { data, error } = await service.auth.admin.getUserById(authUserId);
+      if (error || !data.user || data.user.email?.toLowerCase() !== member.email.toLowerCase()) throw new Error('invitation_identity_mismatch');
+      if (data.user.email_confirmed_at) verificationType = 'recovery';
+    }
+    const generated = await generateLink(service, verificationType, member.email, baseUrl);
     if (generated.userId && generated.userId !== authUserId) throw new Error('member_auth_identity_conflict');
     tokenHash = generated.tokenHash;
   } else {
-    const generated = await generateLink(service, kind, member.email);
+    const generated = await generateLink(service, verificationType, member.email, baseUrl);
     if (kind === 'invite' && !generated.userId) throw new Error('auth_invitation_failed');
     authUserId = generated.userId;
     tokenHash = generated.tokenHash;
@@ -196,20 +206,20 @@ async function issueLink(args: {
     });
   }
 
-  const secret = requiredSecret('TEAM_LINK_ENCRYPTION_KEY');
-  const ciphertext = await encryptMemberToken(tokenHash, secret);
+  const token: MemberTokenPayload = { tokenHash, verificationType };
+  const ciphertext = await encryptMemberToken(token, encryptionKey);
   const savedMember = await rpc<MemberRow>(service, 'team_save_member_link', {
     p_actor_id: actorId, p_member_id: member.id, p_kind: kind, p_key: key,
     p_input_hash: inputHash, p_lease_token: leaseToken, p_ciphertext: ciphertext, p_expires_at: expiresAt,
   });
-  return { member: toMember(savedMember), kind, actionLink: memberActionLink(appUrl(), tokenHash, kind), expiresAt };
+  return { member: toMember(savedMember), kind, actionLink: memberActionLink(baseUrl, tokenHash, verificationType), expiresAt };
 }
 
-async function generateLink(service: ReturnType<typeof clients>['service'], kind: LinkKind, email: string): Promise<{ userId: string | null; tokenHash: string }> {
+async function generateLink(service: ReturnType<typeof clients>['service'], kind: LinkKind, email: string, baseUrl: string): Promise<{ userId: string | null; tokenHash: string }> {
   const { data, error } = await service.auth.admin.generateLink({
     type: kind,
     email,
-    options: { redirectTo: `${appUrl()}/auth/confirm` },
+    options: { redirectTo: `${baseUrl}/auth/confirm` },
   });
   if (error || !data?.properties?.hashed_token) throw new Error(mapAuthError(error?.message ?? 'auth_link_generation_failed'));
   return { userId: data.user?.id ?? null, tokenHash: data.properties.hashed_token };
@@ -275,6 +285,7 @@ function safeError(error: unknown): Response {
     member_status_invalid: 'Trạng thái không hợp lệ.',
     password_invalid: 'Mật khẩu phải có từ 8 đến 256 ký tự.',
     unknown_operation: 'Thao tác không được hỗ trợ.',
+    member_link_ttl_config_invalid: 'Cấu hình thời hạn đường dẫn Auth không hợp lệ.',
   };
   return json({ error: { code, message: publicMessage[message] ?? 'Không thể hoàn thành thao tác quản lý thành viên.' } }, status);
 }
@@ -286,7 +297,7 @@ function mapDatabaseError(message: string): string {
     'member_email_already_exists','auth_user_already_member','member_auth_identity_conflict','member_version_conflict',
     'last_admin_required','self_role_change_forbidden','self_status_change_forbidden','invitation_acceptance_required',
     'member_link_in_progress','member_link_uncertain','member_link_expired','member_link_replaced','idempotency_key_reused','email_invalid','member_role_invalid','member_status_invalid',
-    'member_link_kind_invalid','member_not_found','unknown_operation','member_link_encryption_key_missing','password_invalid',
+    'member_link_kind_invalid','member_not_found','unknown_operation','member_link_encryption_key_missing','member_link_ttl_config_invalid','password_invalid',
   ];
   return known.find((candidate) => message.includes(candidate)) ?? 'team_operation_failed';
 }
@@ -313,17 +324,22 @@ function requireVersion(value: unknown): number {
 
 function requiredSecret(name: string): string {
   const value = Deno.env.get(name);
-  if (!value) throw new Error('team_link_encryption_key_missing');
+  if (!value || new TextEncoder().encode(value).length < 32) throw new Error('team_link_encryption_key_missing');
   return value;
 }
 
 function linkTtlSeconds(): number {
   const value = Number(Deno.env.get('TEAM_LINK_TTL_SECONDS') ?? 3600);
-  return Number.isFinite(value) && value >= 60 && value <= 86_400 ? Math.floor(value) : 3600;
+  if (!Number.isFinite(value) || value < 60 || value > 86_400) throw new Error('member_link_ttl_config_invalid');
+  return Math.floor(value);
 }
 
 function appUrl(): string {
   const base = Deno.env.get('PUBLIC_APP_URL');
   if (!base) throw new Error('team_operation_failed');
-  return base.replace(/\/$/, '');
+  let parsed: URL;
+  try { parsed = new URL(base); } catch { throw new Error('team_operation_failed'); }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+  if ((parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('team_operation_failed');
+  return parsed.origin;
 }
