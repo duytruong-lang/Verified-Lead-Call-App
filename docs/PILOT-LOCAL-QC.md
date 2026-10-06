@@ -54,3 +54,17 @@ Typecheck, lint, 48 Vitest tests và build chạy lại đều pass. Browser smo
 ## Official branding handoff
 
 Bản tích hợp `155e317` dùng SVG chính thức từ website 1990 Agency và Montserrat self-hosted; bỏ câu nhắc recorder ở trạng thái chưa có audio. Typecheck/lint/build, 48 unit tests và toàn bộ 17 demo Playwright tests chạy lại đều pass. Kiểm tra header bao gồm bounds của logo, tên sản phẩm và nút thao tác ở 320/375px, tránh việc CSS clip che tràn ngang. Browser smoke chỉ đọc trên Supabase local xác nhận admin đăng nhập, hàng đợi, logo/font thực sự tải và đăng xuất; không đổi lead. Hướng dẫn bàn giao mới không phải bằng chứng cloud đã triển khai.
+
+## GitHub handoff and deployment guide QC
+
+PR [#7](https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7) merged the application handoff to `main` at publication SHA `8b9a538818e97f708b1e240a6612c1e1d72999e7`. Main CI run [37423215470](https://github.com/duytruong-lang/Verified-Lead-Call-App/actions/runs/37423215470) succeeded. Sol accepted the integration at `4bb2454`; that tree matches the application publication SHA. A fresh remote clone passed `npm ci` and `npm run build`. A later documentation-only PR may advance `main` beyond this application SHA.
+
+Sol reviewed the recipient-owned Supabase instructions and the two SQL blocks. Bootstrap and seed behavior passed against an isolated PostgreSQL database with the 11 repository migrations and scratch Auth/Storage shims. The synthetic seed also passed concurrency, existing-state preservation, and ID/tag collision checks. This is SQL behavior verification only; it does not show that Supabase cloud, Cloudflare Pages, or Google Sheets have been deployed or tested.
+
+The initial cloud project runbook is [HANDOFF-TRIEUMANH0405.md](HANDOFF-TRIEUMANH0405.md). Asset attribution and the Montserrat OFL notice are documented in [BRAND-ASSETS.md](BRAND-ASSETS.md). The recipient must configure and smoke-test their own Supabase project and Pages deployment.
+
+## Local retirement status
+
+Writes were frozen before backup. The pre-retirement inventory was 10 synthetic leads, one saved contact attempt, zero recordings, zero Storage objects, and 11 migrations. The retained self-contained private archive contains 27 checksummed files; its hash and file-permission checks passed. Two cold-restore clones passed data/count, Auth/Admin, hash, encryption-key, and Storage checks. Sol granted the formal backup/restore pass before the coordinator authorized scoped cleanup.
+
+Operations re-inventoried Colima and found only this project and the two restore clones. It removed their containers, volumes, and network, then deleted Colima `default` VM/data without a global prune. Post-check found no Colima profiles/VMs, Docker was unavailable, and ports 5173, 54321, 54322, and 54323 were stopped. The source checkout, `.git`, `.supabase/integration`, and private archive remain. At the cleanup measurement snapshot, available host space increased from 14,192,832 KiB to 20,357,580 KiB: 6,164,748 KiB recovered (about 5.88 GiB / 6.31 GB); available space can vary as other processes run. The retained archive occupies 1,134,016 KiB (about 1.08 GiB). Sol’s independent final retirement check passed, including archive hash/permission checks and confirmation that no Colima VM or project port remained.
