@@ -184,6 +184,24 @@ test('sign-in, team dialog, and workspace remain usable at approved viewport wid
     if (width <= 640) {
       await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
       await expect(page.getByRole('button', { name: 'Quay lại hàng đợi' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Thành viên' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Đăng xuất' })).toBeVisible();
+      const mobileHeaderBounds = await page.evaluate(() => {
+        const bounds = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Missing header element: ${selector}`);
+          const { left, right, top, bottom } = element.getBoundingClientRect();
+          return { left, right, top, bottom };
+        };
+        return { logo: bounds('.brand-logo-header'), title: bounds('.brand-copy h1'), members: bounds('.team-open-button'), logout: bounds('.user-button'), header: bounds('.app-header') };
+      });
+      expect(mobileHeaderBounds.logo.left).toBeGreaterThanOrEqual(0);
+      expect(mobileHeaderBounds.logo.right).toBeLessThanOrEqual(width);
+      expect(mobileHeaderBounds.title.left).toBeGreaterThanOrEqual(mobileHeaderBounds.logo.right);
+      expect(mobileHeaderBounds.title.right).toBeLessThanOrEqual(mobileHeaderBounds.members.left);
+      expect(mobileHeaderBounds.members.right).toBeLessThanOrEqual(mobileHeaderBounds.logout.left);
+      expect(mobileHeaderBounds.logout.right).toBeLessThanOrEqual(width);
+      expect(mobileHeaderBounds.title.bottom).toBeLessThanOrEqual(mobileHeaderBounds.header.bottom);
       await expect(page.locator('.history-empty')).toBeVisible();
       const mobileBounds = await page.evaluate(() => ({ footer: document.querySelector('.status-footer')!.getBoundingClientRect(), history: document.querySelector('.history-section')!.getBoundingClientRect() }));
       expect(mobileBounds.footer.top).toBeGreaterThanOrEqual(mobileBounds.history.bottom);
