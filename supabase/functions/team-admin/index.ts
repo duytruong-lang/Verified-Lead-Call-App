@@ -260,7 +260,10 @@ function safeError(error: unknown): Response {
   const raw = error instanceof Error ? error.message : 'team_operation_failed';
   const message = mapDatabaseError(raw);
   const status = errorStatus[message] ?? 400;
-  const code = message === 'authentication_required' ? 'UNAUTHENTICATED' : status === 403 ? 'FORBIDDEN' : status === 409 ? 'CONFLICT' : 'TEAM_OPERATION_FAILED';
+  const code = message === 'authentication_required' ? 'UNAUTHENTICATED'
+    : message === 'member_link_expired' ? 'LINK_EXPIRED'
+    : message === 'member_link_replaced' ? 'LINK_REPLACED'
+    : status === 403 ? 'FORBIDDEN' : status === 409 ? 'CONFLICT' : 'TEAM_OPERATION_FAILED';
   const publicMessage: Record<string, string> = {
     authentication_required: 'Vui lòng đăng nhập.',
     admin_required: 'Chỉ quản trị viên đang hoạt động mới được thực hiện thao tác này.',
