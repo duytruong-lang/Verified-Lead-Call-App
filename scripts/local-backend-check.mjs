@@ -241,6 +241,8 @@ const missingOtherNote = await invoke(a, 'save-outcome', { claimId: otherClaim.d
 assert(Boolean(missingOtherNote.error), 'other outcome without a note is rejected');
 const untouched = await service.from('leads').select('attempt_count').eq('id', otherLeadId).single();
 assert(!untouched.error && untouched.data.attempt_count === 0, 'failed outcome leaves attempt count unchanged');
+const cancelOtherDraft = await invoke(a, 'cancel-attempt', { claimId: otherClaim.data.data.claimId, idempotencyKey: `other-cancel-${tag}` });
+assert(!cancelOtherDraft.error, 'a failed outcome leaves its draft safely cancelable for the next synthetic scenario');
 
 const legacyLeadId = randomUUID();
 trackLead(legacyLeadId);
