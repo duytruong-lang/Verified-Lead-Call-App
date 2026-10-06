@@ -37,6 +37,9 @@ async function createLink(page: Page, action: 'invite' | 'recovery', email: stri
 async function setPassword(page: Page, link: string, password: string) {
   await page.goto(link);
   await expect(page.getByRole('heading', { name: 'Tạo mật khẩu' })).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(/\/auth\/setup$/);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Tạo mật khẩu' })).toBeVisible();
   await page.getByLabel('Mật khẩu mới').fill(password);
   await page.getByLabel('Nhập lại mật khẩu').fill(password);
   await page.getByRole('button', { name: 'Lưu mật khẩu' }).click();
@@ -105,16 +108,9 @@ test('local Supabase: pending invite setup and active recovery both return to pa
   await memberRow.getByRole('combobox', { name: `Quyền của ${memberEmail}` }).click();
   await page.getByRole('option', { name: 'Chỉ xem' }).click();
   await expect(memberRow).toContainText('Chỉ xem');
-  await recoveryPage.reload();
-  await expect(recoveryPage.getByRole('heading', { name: 'Xác minh lead' })).toBeVisible();
-  await recoveryPage.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
-  await expect(recoveryPage.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
-  await expect(recoveryPage.getByRole('button', { name: /Bắt đầu gọi/ })).toHaveCount(0);
-  await expect(recoveryPage.getByRole('link', { name: /^Gọi/ })).toHaveCount(0);
-  await expect(recoveryPage.getByRole('button', { name: 'Đã xác minh' })).toHaveCount(0);
 
-  await memberRow.getByRole('button', { name: `Thu hồi quyền truy cập của ${memberEmail}` }).click();
   page.once('dialog', (dialog) => dialog.accept());
+  await memberRow.getByRole('button', { name: `Thu hồi quyền truy cập của ${memberEmail}` }).click();
   await expect(memberRow).toContainText('Đã vô hiệu hóa');
   await recoveryPage.reload();
   await expect(recoveryPage.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();

@@ -169,12 +169,19 @@ test('sign-in, team dialog, and workspace remain usable at approved viewport wid
   await page.screenshot({ path: '/tmp/verified-call-team.png', fullPage: true });
   await page.locator('.ui-dialog-close').click();
   await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
+  await page.evaluate(async () => { await document.fonts.ready; });
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Montserrat');
+  expect(await page.evaluate(() => document.fonts.check('14px Montserrat'))).toBe(true);
 
   for (const width of [320, 375, 414, 768]) {
     await page.setViewportSize({ width, height: 820 });
     if (width <= 640) {
       await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
       await expect(page.getByRole('button', { name: 'Quay lại hàng đợi' })).toBeVisible();
+      await expect(page.locator('.history-empty')).toBeVisible();
+      const mobileBounds = await page.evaluate(() => ({ footer: document.querySelector('.status-footer')!.getBoundingClientRect(), workbench: document.querySelector('.workbench')!.getBoundingClientRect() }));
+      expect(mobileBounds.footer.top).toBeGreaterThanOrEqual(mobileBounds.workbench.bottom);
+      expect(Number.parseFloat(await page.locator('.history-empty').evaluate((element) => getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
     } else {
       await expect(page.locator('.queue-column')).toBeVisible();
       await expect(page.locator('.detail-column')).toBeVisible();

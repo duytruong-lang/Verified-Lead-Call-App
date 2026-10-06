@@ -119,6 +119,7 @@ export function App() {
           sessionAccessUnknownRef.current = false;
           if (!sameActor(previous, current)) { actorRef.current = current; setActor(current); }
           else { actorRef.current = previous; }
+          if (window.location.pathname === '/auth/setup') setSetupReady(true);
         }
         if (current?.status === 'active') setAuthError('');
       } catch (cause) {

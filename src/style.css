@@ -295,3 +295,9 @@ body { margin: 0; background: var(--color-surface-soft); color: var(--color-fore
 .mobile-back { display:none; }
 @media(max-width:640px) { .mobile-back { display:inline-flex; } .ui-dialog-content { top:auto; bottom:4px; width:calc(100vw - 16px); max-height:94vh; transform:translateX(-50%); } .team-open-button { width:44px; padding:0; } .team-open-button span { display:none; } }
 @media(max-width:640px) { .ui-drawer-content { padding-right:14px; padding-left:14px; } }
+/* Keep the global sync note in document flow on phones so it cannot cover history. */
+@media (max-width: 640px) {
+  .status-footer { position: static; right: auto; bottom: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 4px 4px; line-height: 1.45; }
+}
+.history-empty { color: var(--color-muted); font-size: 14px; line-height: 1.5; }
+.overline { text-decoration: none; }

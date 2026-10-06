@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Check, Copy, KeyRound, Link2, LoaderCircle, MailPlus, Trash2 } from 'lucide-react';
 import type { MemberLink, MemberRole, MemberStatus, TeamMember, UUID } from '@/shared/types';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -28,6 +29,7 @@ const statusLabels: Record<MemberStatus, string> = { pending: 'Chờ tham gia', 
 const nameOf = (member: TeamMember) => member.displayName?.trim() || member.email.split('@')[0];
 
 export function TeamAccessCard({ members, currentMemberId, currentMemberEmail, busy = false, error, onInvite, onRoleChange, onStatusChange, onIssueLink, onClose, className }: TeamAccessCardProps) {
+  const reduceMotion = useReducedMotion();
   const [open, setOpen] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -94,7 +96,7 @@ export function TeamAccessCard({ members, currentMemberId, currentMemberEmail, b
       {(error || localError) && <p className="admin-error" role="alert">{localError || error}</p>}
       {status && <p className="admin-status" role="status">{status}</p>}
       <CardContent className="team-member-list">
-        {members.map((member) => <article className="team-member" key={member.id}>
+        {members.map((member) => <motion.article className="team-member" key={member.id} layout={!reduceMotion} initial={reduceMotion ? false : { opacity: 0, y: 3 }} animate={{ opacity: 1, y: 0 }} transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}>
           <Avatar className="team-avatar"><AvatarFallback>{nameOf(member).slice(0, 1).toUpperCase()}</AvatarFallback></Avatar>
           <div className="team-member-info"><strong>{nameOf(member)}{isSelf(member) && <span className="you-tag">Bạn</span>}</strong><span>{member.email}</span><small className={`member-status status-${member.status}`}><i />{statusLabels[member.status]}</small></div>
           <div className="team-member-actions">
@@ -104,7 +106,7 @@ export function TeamAccessCard({ members, currentMemberId, currentMemberEmail, b
             {member.status === 'disabled' ? <Button variant="outline" disabled={pending || isSelf(member)} onClick={() => void updateStatus(member, 'active')}>Kích hoạt</Button> : !isSelf(member) && <Button variant="ghost" size="icon" disabled={pending} onClick={() => void updateStatus(member, 'disabled')} aria-label={`Thu hồi quyền truy cập của ${member.email}`}><Trash2 size={17} /></Button>}
             {working === `role:${member.id}` || working === `status:${member.id}` || working === `link:${member.id}` ? <LoaderCircle size={16} className="spin" aria-label="Đang cập nhật" /> : null}
           </div>
-        </article>)}
+        </motion.article>)}
         {!members.length && <p className="team-empty">Chưa có thành viên.</p>}
       </CardContent>
       {link && <CardFooter className="member-link-card"><div className="member-link-heading"><Check size={17} /><div><strong>Liên kết {link.kind === 'invite' ? 'mời tham gia' : 'khôi phục mật khẩu'}</strong><span>Hết hạn {new Date(link.expiresAt).toLocaleString('vi-VN')}</span></div></div><div className="member-link-copy"><Input readOnly aria-label="Liên kết dùng một lần" value={link.actionLink} onFocus={(event) => event.currentTarget.select()} /><Button onClick={() => void copyLink()}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Đã sao chép' : 'Sao chép'}</Button></div><small>Liên kết chỉ hiển thị tạm thời trong phiên này. Gửi qua kênh nội bộ phù hợp.</small></CardFooter>}
