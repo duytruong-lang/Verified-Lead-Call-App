@@ -61,7 +61,7 @@ PR [#7](https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7) merged 
 
 Sol reviewed the recipient-owned Supabase instructions and the two SQL blocks. Bootstrap and seed behavior passed against an isolated PostgreSQL database with the 11 repository migrations and scratch Auth/Storage shims. The synthetic seed also passed concurrency, existing-state preservation, and ID/tag collision checks. This is SQL behavior verification only; it does not show that Supabase cloud, Cloudflare Pages, or Google Sheets have been deployed or tested.
 
-The initial cloud project runbook is [HANDOFF-TRIEUMANH0405.md](HANDOFF-TRIEUMANH0405.md). It includes official asset attribution and the Montserrat OFL notice. The recipient must configure and smoke-test their own Supabase project and Pages deployment.
+The initial cloud project runbook is [HANDOFF-TRIEUMANH0405.md](HANDOFF-TRIEUMANH0405.md). Asset attribution and the Montserrat OFL notice are documented in [BRAND-ASSETS.md](BRAND-ASSETS.md). The recipient must configure and smoke-test their own Supabase project and Pages deployment.
 
 ## Local retirement status
 

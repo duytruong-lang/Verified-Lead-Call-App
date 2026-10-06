@@ -38,6 +38,6 @@ At the latest access check, the GitHub write invitation for `trieumanh0405` was 
 
 ## Risks
 
-1. Stop if backup validation or restore fails; retain the local project.
-2. Recheck Docker/Colima resources before deletion and preserve any unrelated workload.
+1. For any future restore, stop if validation fails; keep the retained archive intact and diagnose in an isolated clone before relying on restored data.
+2. The Colima `default` VM has been removed. If local services are recreated later, re-inventory current Docker/Colima workloads first and remove only resources proven to belong to this project; never use a global prune.
 3. Keep credentials, recordings, real leads, and backups out of the public repository.
