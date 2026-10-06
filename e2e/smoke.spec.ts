@@ -90,6 +90,37 @@ test('requires a note for other and rejects unplayable audio', async ({ page }) 
   await expect(page.getByText('Lượt 1 · Khác')).toBeVisible();
 });
 
+test('mobile queue opens a lead detail and returns to the queue without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'queue');
+  await expect(page.locator('.queue-column')).toBeVisible();
+  await expect(page.locator('.detail-column')).toBeHidden();
+  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
+  await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
+  await expect(page.locator('.queue-column')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.getByRole('button', { name: 'Quay lại hàng đợi' }).click();
+  await expect(page.locator('.queue-column')).toBeVisible();
+});
+
+test('admin can create a local synthetic invite and copy its temporary action link', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: /Thành viên/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Thành viên workspace' })).toBeVisible();
+  await page.getByRole('button', { name: /Mời thành viên/ }).click();
+  await page.getByLabel('Email công việc').fill('staff@example.test');
+  await page.getByRole('button', { name: 'Tạo liên kết mời' }).click();
+  await expect(page.getByRole('status')).toContainText('Đã tạo liên kết mời');
+  await expect(page.getByText('staff@example.test')).toBeVisible();
+  await expect(page.getByText('Chờ tham gia')).toBeVisible();
+  const link = page.getByLabel('Liên kết dùng một lần');
+  await expect(link).toHaveValue(/\/auth\/confirm\?token_hash=demo-/);
+  await page.getByRole('button', { name: 'Sao chép' }).click();
+  await expect(page.getByRole('button', { name: 'Đã sao chép' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('/auth/confirm?token_hash=demo-');
+});
+
 test('blocks the sixth saved contact attempt while keeping final evaluation available', async ({ page }) => {
   await page.getByRole('button', { name: /Lê Thu Hà/ }).click();
   for (let index = 1; index <= 5; index += 1) {

@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { LeadCallRepository } from '../shared/repository';
 import { RepositoryError } from '../shared/repository';
-import type { LeadDetails, LeadQueue, LeadSummary, PublicRecordingInfo, SaveOutcomeInput, SaveOutcomeResult, SheetMapping, SheetMappingValidation, UUID } from '../shared/types';
+import type { Actor, LeadDetails, LeadQueue, LeadSummary, MemberLink, MemberRole, PublicRecordingInfo, SaveOutcomeInput, SaveOutcomeResult, SheetMapping, SheetMappingValidation, TeamMember, UUID } from '../shared/types';
 
 type EdgeFunctionName = 'list-leads' | 'get-lead' | 'claim-attempt' | 'resume-attempt' | 'cancel-attempt' | 'save-outcome' | 'begin-recording-upload' | 'complete-recording-upload' | 'complete-evaluation' | 'create-share' | 'replace-handoff' | 'revoke-share' | 'resolve-share' | 'validate-sheet-mapping' | 'enqueue-sheet-sync';
 
@@ -30,9 +30,8 @@ export class SupabaseRepository implements LeadCallRepository {
     const { data, error } = await this.client.auth.getUser();
     if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
     if (!data.user) return { actor: null };
-    const { data: profile, error: profileError } = await this.client.from('profiles').select('role').eq('user_id', data.user.id).single();
-    if (profileError) throw new RepositoryError(profileError.message, 'PROFILE_ERROR');
-    return { actor: { id: data.user.id as UUID, role: profile.role } };
+    const result = await this.invokeTeam<{ actor: Actor | null }>('get-session', {});
+    return { actor: result.actor };
   }
 
   async signIn(email: string, password: string): Promise<void> {
@@ -44,6 +43,26 @@ export class SupabaseRepository implements LeadCallRepository {
     const { error } = await this.client.auth.signOut();
     if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
   }
+
+  onAuthChange(listener: () => void): () => void {
+    const { data } = this.client.auth.onAuthStateChange(() => listener());
+    return () => data.subscription.unsubscribe();
+  }
+
+  async acceptAuthLink(tokenHash: string, type: 'invite' | 'recovery'): Promise<void> {
+    const { error } = await this.client.auth.verifyOtp({ token_hash: tokenHash, type });
+    if (error) throw new RepositoryError(error.message, 'AUTH_LINK_ERROR');
+  }
+
+  async completeOnboarding(password: string): Promise<void> {
+    await this.invokeTeam<{ id: UUID }>('complete-onboarding', { password });
+  }
+
+  listMembers(): Promise<TeamMember[]> { return this.invokeTeam<{ members: TeamMember[] }>('list-members', {}).then((result) => result.members); }
+  inviteMember(input: { email: string; role: MemberRole; idempotencyKey: string }): Promise<MemberLink> { return this.invokeTeam('invite-member', input); }
+  issueMemberLink(input: { memberId: UUID; kind: 'invite' | 'recovery'; idempotencyKey: string }): Promise<MemberLink> { return this.invokeTeam('issue-member-link', input); }
+  setMemberRole(input: { memberId: UUID; role: MemberRole; expectedVersion: number; idempotencyKey: string }): Promise<TeamMember> { return this.invokeTeam('set-member-role', input); }
+  setMemberStatus(input: { memberId: UUID; status: 'active' | 'disabled'; expectedVersion: number; idempotencyKey: string }): Promise<TeamMember> { return this.invokeTeam('set-member-status', input); }
 
   getLead(leadId: UUID): Promise<LeadDetails> {
     return this.invoke('get-lead', { leadId });
@@ -124,6 +143,15 @@ export class SupabaseRepository implements LeadCallRepository {
     if (!data) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
     if (data.error) throw new RepositoryError(data.error.message ?? 'Backend request failed.', data.error.code ?? 'BACKEND_ERROR');
     if (data.data === undefined) throw new RepositoryError(`Backend function ${name} returned no data.`, 'EMPTY_RESPONSE');
+    return data.data;
+  }
+
+  private async invokeTeam<T>(operation: string, body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke<{ data?: T; error?: { code?: string; message?: string } }>('team-admin', { body: { operation, ...body } });
+    if (error) return repositoryFunctionError(error, 'TEAM_ADMIN_ERROR');
+    if (!data) throw new RepositoryError('Team admin returned no response.', 'EMPTY_RESPONSE');
+    if (data.error) throw new RepositoryError(data.error.message ?? 'Team admin request failed.', data.error.code ?? 'TEAM_ADMIN_ERROR');
+    if (data.data === undefined) throw new RepositoryError('Team admin returned no data.', 'EMPTY_RESPONSE');
     return data.data;
   }
 }
