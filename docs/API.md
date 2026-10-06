@@ -39,6 +39,24 @@ The UI depends on `LeadCallRepository` in `src/shared/repository.ts`. `SupabaseR
 
 Workers acquire a singleton global worker lease before polling or writing, then serialize output per lead using a lease and monotonically increasing fencing token. The global worker lease expires so a crashed poller can recover; each invocation uses a unique worker ID. An expired output-write lease is quarantined as blocked because the Sheet write may already have landed. It is not blindly reclaimed: stale workers cannot report success, and newer versions wait behind the barrier until readback reconciliation confirms the Sheet matches the latest app snapshot. Since Google Sheets does not provide compare-and-swap for arbitrary cells, verify row identity and lease ownership immediately before writing. A timed-out or server-error write is also blocked for reconciliation. Other retryable errors use bounded exponential backoff while retaining the latest app state. Import cursors advance by compare-and-swap and reset when the mapping fingerprint changes.
 
-## Initial shared types
+## Pilot membership and authentication extension
+
+The pilot remains one shared internal workspace. Member roles are `admin`, `staff`, and `viewer`; `service` is an internal actor type, never a selectable team role. Every member has `pending`, `active`, or `disabled` status. Only active members can read workspace data; only active admin/staff can mutate call state. Existing staff ownership and share-revocation rules remain in force. Public recording tokens remain independent of member access revocation.
+
+`TeamMember` exposes `id`, `email`, `displayName`, `role`, `status`, `version`, and `createdAt`. Its `id` identifies the roster row and differs from the Auth UID in `Actor.id`; `Actor.memberId` identifies that actor's roster row. The authenticated `team-admin` endpoint uses the usual `{data: result}` envelope:
+
+| Operation | Input | Result |
+| --- | --- | --- |
+| `get-session` | none | `{actor: Actor \| null}`; own identity/status only, including pending/disabled so the app can explain denied access |
+| `list-members` | none | `{members: TeamMember[]}`; admin only |
+| `invite-member` | normalized email, role, idempotencyKey | `MemberLink`; admin only; duplicate/retry cannot create another identity |
+| `issue-member-link` | memberId, kind (`invite` or `recovery`), idempotencyKey | `MemberLink`; admin only |
+| `set-member-role` | memberId, role, expectedVersion, idempotencyKey | updated `TeamMember` |
+| `set-member-status` | memberId, status (`active` or `disabled`), expectedVersion, idempotencyKey | updated `TeamMember`; cannot activate an unaccepted invitation |
+| `complete-onboarding` | password | authenticated invite/recovery user's password setup; pending membership activates only after server-side Auth update |
+
+`MemberLink` contains `member`, `kind`, `actionLink`, and `expiresAt`. Its link is a transient secret shown only to the administrator; it must never appear in logs, audit payloads, fixtures, or committed files. The app consumes `/auth/confirm?token_hash=...&type=invite|recovery` through Supabase `verifyOtp`, removes token material from the browser URL, and presents password setup. Signup is disabled; no automated email delivery is required for this pilot.
+
+Role/status changes are server-authoritative, audited, version checked, and replay-safe. A transaction prevents self-demotion/disable and loss of the last active administrator, and cancels open claims when a member loses write access without incrementing completed attempts. Authorization is rechecked at final upload completion as well as request entry. Disabling an account preserves call history and previously issued public recording links.
 
 The TypeScript interfaces in `src/shared/types.ts` are the source for this contract. Extend them with versioned changes. Do not put Google access tokens, signed audio URLs, lead data, or credentials in Git or logs.

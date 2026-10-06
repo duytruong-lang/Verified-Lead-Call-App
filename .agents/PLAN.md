@@ -2,34 +2,24 @@
 
 ## Summary
 
-MVP implementation and local acceptance are complete. Current task is **cross-session knowledge handoff and GitHub publication**, requested explicitly by the user. Do not begin new product implementation during this task. Original product plan: `docs/PLAN.md`; acceptance: `docs/HANDOFF.md`.
+Approved GitHub handoff to `trieumanh0405`: official 1990 logo/Montserrat, remove the idle-recorder sentence, recipient-owned Supabase runbook, merge through PR, then verified private backup and local Supabase cleanup. No new backend API/schema or cloud deployment.
 
 ## Phases
 
-| Phase | State |
-| --- | --- |
-| Foundation/bootstrap/contracts/CI | Complete, merged |
-| Luna backend/frontend/Sheets implementation and fixes | Complete, merged through PRs #1–5 |
-| Sol integrated QC | PASS at code SHA `2e24bba024975c3488c6b26dd5f67e07cb9e3f47` |
-| Astra local-first acceptance | ACCEPT; report in `docs/HANDOFF.md` |
-| Application integration | `main` SHA `35de0ed61f1a7cee3440d1ced444ff76d6af4ed1`; identical tree to accepted code SHA; CI passed |
-| Acceptance documentation / continuity | PR #6; current checkout follows its remote branch; CI required before merge |
-| Cloud/real-Sheet/physical-call pilot | Not started; inputs/authorization outstanding |
+1. Luna UI and documentation work in separate worktrees; coordinator integrates and owns shared manifests/contracts/migrations.
+2. Sol independently reviews brand, recorder behavior, own-account cloud bootstrap, and public-source safety.
+3. CI must pass the final PR head, then merge and verify main CI/clean checkout.
+4. Luna operations creates a private full backup and isolated restore; Sol must verify it before deletion.
+5. Remove only project runtime; remove Colima default VM/data only after confirming no unrelated resources. Preserve source, Git and backup. Record actual recovered disk space.
 
 ## Verification
 
-Prior completed checks and attribution are in `docs/HANDOFF.md` and `.agents/HANDOFF.md`. For this documentation-only handoff, check diff, paths, private-file exclusion, Git/PR/CI state and review memory accuracy; do not rerun broad application suites without a reason. After code changes in a later session, run the applicable checks required by `AGENTS.md`.
+Typecheck/lint/unit/build/demo browser suite; visual checks at 320/375/414/768px and desktop with loaded fonts/logo; actual local sign-in smoke without running the global harness on the populated pilot. Validate first-admin SQL on isolated data, backup all schemas/Auth/roles/Storage/migration history and encryption keys, verify restore counts and membership consistency. CI and public-source review are required before main publication.
 
 ## Risks
 
-- Handoff PR CI can remain blocked by hosted runner allocation rather than app failures.
-- Local ignored configuration/processes are machine-specific; verify them before resuming, preserve encryption key and avoid resetting data.
-- Live Google/cloud/physical-call behavior remains unverified.
+Original synchronized Git metadata has historical blocking reads: use `.supabase/integration` and preserve the original history/index. `.supabase` also contains private runtime files and the clean checkout, so never delete it wholesale. Stop cleanup on any failed backup/restore check or unexpected shared resource.
 
-## What is needed for the next product stage
+## What is needed later
 
-Admin/staff emails, Supabase and Cloudflare accounts, authorized Sheet pilot copy, permission to inspect existing automations, and an operator for a physical speakerphone test. User has not provided these and selected local-first. Do not ask again while only publishing continuity docs.
-
-## Next action
-
-Check PR #6 CI on the current HEAD before integrating the documentation into `main`.
+Recipient accepts GitHub write invitation and provisions their own Supabase/Cloudflare credentials, Admin email and optional Sheet pilot/service account. Existing local evidence does not certify that future deployment.

@@ -1,10 +1,13 @@
 import type { LeadCallRepository } from '../shared/repository';
 import { RepositoryError } from '../shared/repository';
-import type { ContactAttempt, LeadDetails, LeadQueue, LeadSummary, Recording, RecordingShare, SaveOutcomeResult, UploadTarget, UUID } from '../shared/types';
+import type { ContactAttempt, LeadDetails, LeadQueue, LeadSummary, MemberLink, MemberRole, Recording, RecordingShare, SaveOutcomeResult, TeamMember, UploadTarget, UUID } from '../shared/types';
 
 const ACTOR = '00000000-0000-4000-8000-000000000001' as UUID;
 const DB_KEY = 'verified-call-demo-v1';
 const AUDIO_DB = 'verified-call-demo-audio-v1';
+const teamMembers: TeamMember[] = [{ id: ACTOR, email: 'nhan-vien-demo@example.test', displayName: 'Nhân viên demo', role: 'admin', status: 'active', version: 1, createdAt: new Date().toISOString() }];
+const demoMemberLinks = new Map<string, MemberLink>();
+const demoMemberMutations = new Map<string, TeamMember>();
 type State = { leads: LeadDetails[]; tokens: Record<string, { leadId: UUID; recordingId: UUID }>; saves: Record<string, SaveOutcomeResult>; sharesByKey: Record<string, { shareId: UUID; publicUrl: string }>; replacementsByKey: Record<string, { version: number; shareId: UUID }>; uploadTargets: Record<string, UploadTarget> };
 const seed: LeadDetails[] = [
   ['101', 'Nguyễn Minh Anh', '+00-000-000-0001', 'Facebook Lead Ads', { nhu_cau: 'Tư vấn gói chăm sóc da', khu_vuc: 'Quận 3, TP. Hồ Chí Minh', khung_gio: 'Buổi chiều' }],
@@ -26,7 +29,7 @@ function readState(): State {
 const saved = readState();
 const state: State = { ...saved, saves: saved.saves ?? {}, sharesByKey: saved.sharesByKey ?? {}, replacementsByKey: saved.replacementsByKey ?? {}, uploadTargets: saved.uploadTargets ?? {} };
 function persist() { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
-function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once' | 'expired-upload-target-once') {
+function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once' | 'expired-upload-target-once' | 'member-link-expired-once') {
   if (localStorage.getItem(`verified-call-e2e-fault:${name}`) !== 'once') return false;
   localStorage.removeItem(`verified-call-e2e-fault:${name}`); return true;
 }
@@ -43,9 +46,51 @@ function summary(lead: LeadDetails): LeadSummary { const { id, displayName, phon
 function audioDb(): Promise<IDBDatabase> { return new Promise((resolve, reject) => { const req = indexedDB.open(AUDIO_DB, 1); req.onupgradeneeded = () => req.result.createObjectStore('audio'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); }
 
 export class DemoRepository implements LeadCallRepository {
-  async getSession() { return { actor: { id: ACTOR, role: 'admin' as const } }; }
+  async getSession() { return { actor: { id: ACTOR, role: 'admin' as const, status: 'active' as const, email: 'nhan-vien-demo@example.test', displayName: 'Nhân viên demo' } }; }
   async signIn() {}
   async signOut() {}
+  onAuthChange() { return () => undefined; }
+  async acceptAuthLink() { throw new RepositoryError('Liên kết Auth chỉ dùng ở chế độ Supabase.', 'DEMO_AUTH_UNAVAILABLE'); }
+  async completeOnboarding() { throw new RepositoryError('Thiết lập tài khoản chỉ dùng ở chế độ Supabase.', 'DEMO_AUTH_UNAVAILABLE'); }
+  async listMembers() { return structuredClone(teamMembers); }
+  async inviteMember(input: { email: string; role: MemberRole; idempotencyKey: string }): Promise<MemberLink> {
+    const replay = demoMemberLinks.get(`invite:${input.idempotencyKey}`);
+    if (replay) return structuredClone(replay);
+    const email = input.email.trim().toLowerCase();
+    const existing = teamMembers.find((member) => member.email.toLowerCase() === email);
+    if (existing) throw new RepositoryError('Email này đã có trong workspace demo.', 'MEMBER_EXISTS');
+    const member: TeamMember = { id: id(), email, displayName: null, role: input.role, status: 'pending', version: 1, createdAt: iso() };
+    teamMembers.push(member);
+    const link = this.demoMemberLink(member, 'invite'); demoMemberLinks.set(`invite:${input.idempotencyKey}`, link); return structuredClone(link);
+  }
+  async issueMemberLink(input: { memberId: UUID; kind: 'invite' | 'recovery'; idempotencyKey: string }): Promise<MemberLink> {
+    if (consumeDemoFault('member-link-expired-once')) throw new RepositoryError('Liên kết trước đã hết hạn hoặc được thay thế.', 'LINK_EXPIRED');
+    const replay = demoMemberLinks.get(`link:${input.idempotencyKey}`);
+    if (replay) return structuredClone(replay);
+    const member = teamMembers.find((item) => item.id === input.memberId);
+    if (!member) throw new RepositoryError('Không tìm thấy thành viên demo.', 'NOT_FOUND');
+    if (input.kind === 'invite' && member.status !== 'pending') throw new RepositoryError('Tài khoản này đã tham gia workspace.', 'MEMBER_ACTIVE');
+    if (input.kind === 'recovery' && member.status !== 'active') throw new RepositoryError('Chỉ tài khoản đang hoạt động mới nhận liên kết khôi phục.', 'MEMBER_INACTIVE');
+    const link = this.demoMemberLink(member, input.kind); demoMemberLinks.set(`link:${input.idempotencyKey}`, link); return structuredClone(link);
+  }
+  async setMemberRole(input: { memberId: UUID; role: MemberRole; expectedVersion: number; idempotencyKey: string }): Promise<TeamMember> {
+    const replay = demoMemberMutations.get(input.idempotencyKey); if (replay) return structuredClone(replay);
+    const member = teamMembers.find((item) => item.id === input.memberId);
+    if (!member) throw new RepositoryError('Không tìm thấy thành viên demo.', 'NOT_FOUND');
+    if (member.version !== input.expectedVersion) throw new RepositoryError('Thành viên đã được cập nhật ở nơi khác.', 'VERSION_CONFLICT');
+    member.role = input.role; member.version += 1; demoMemberMutations.set(input.idempotencyKey, member); return structuredClone(member);
+  }
+  async setMemberStatus(input: { memberId: UUID; status: 'active' | 'disabled'; expectedVersion: number; idempotencyKey: string }): Promise<TeamMember> {
+    const replay = demoMemberMutations.get(input.idempotencyKey); if (replay) return structuredClone(replay);
+    const member = teamMembers.find((item) => item.id === input.memberId);
+    if (!member) throw new RepositoryError('Không tìm thấy thành viên demo.', 'NOT_FOUND');
+    if (member.version !== input.expectedVersion) throw new RepositoryError('Thành viên đã được cập nhật ở nơi khác.', 'VERSION_CONFLICT');
+    member.status = input.status; member.version += 1; demoMemberMutations.set(input.idempotencyKey, member); return structuredClone(member);
+  }
+  private demoMemberLink(member: TeamMember, kind: 'invite' | 'recovery'): MemberLink {
+    const token = crypto.randomUUID();
+    return { member: structuredClone(member), kind, actionLink: `${location.origin}/auth/confirm?token_hash=demo-${token}&type=${kind}`, expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+  }
   async listLeads(queue: LeadQueue) { addDemoLeadForE2EIfRequested(); return state.leads.filter((lead) => lead.queue === queue).map(summary); }
   async getLead(leadId: UUID) { const lead = state.leads.find((x) => x.id === leadId); if (!lead) throw new RepositoryError('Không tìm thấy lead demo.', 'NOT_FOUND'); return structuredClone(lead); }
   async claimAttempt(leadId: UUID, idempotencyKey: string) {

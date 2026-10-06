@@ -19,8 +19,11 @@ export async function requireAdmin(request: Request): Promise<{ userId: string }
   const token = authorization.slice('Bearer '.length).trim();
   const { data: { user }, error } = await client.auth.getUser(token);
   if (error || !user) return json({ error: 'Invalid session.' }, 401);
-  const { data: profile, error: profileError } = await serviceClient.from('profiles').select('role').eq('user_id', user.id).maybeSingle();
-  if (profileError || profile?.role !== 'admin') return json({ error: 'Administrator role required.' }, 403);
+  const { data: members, error: memberError } = await serviceClient.rpc('team_auth_context', { p_auth_user_id: user.id });
+  const member = Array.isArray(members) ? members[0] : null;
+  if (memberError || member?.status !== 'active' || member?.role !== 'admin' || String(member?.email ?? '').toLowerCase() !== (user.email ?? '').toLowerCase()) {
+    return json({ error: 'Active administrator membership required.' }, 403);
+  }
   return { userId: user.id };
 }
 

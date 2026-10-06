@@ -11,19 +11,19 @@ Demo chỉ dùng dữ liệu tổng hợp trong browser hiện tại. Lead lưu 
 
 ## 2. Chạy Supabase local an toàn
 
-Chỉ thao tác với project ID `verified-lead-call-local` trong `supabase/config.toml`, chạy trên máy phát triển. `supabase db reset --local` xóa database local, gồm users và lead synthetic; xác nhận project đang là loopback trước khi chạy. Không reset project cloud.
+Chỉ thao tác với project ID `verified-lead-call-local` trong `supabase/config.toml`, chạy trên máy phát triển. Khi tiếp tục project, giữ database và encryption key hiện có, rồi áp dụng migration bổ sung. `supabase db reset --local` xóa database local, gồm users và lead synthetic; không dùng lệnh này để resume. Không reset project cloud.
 
 Trong checkout đã tích hợp backend, dùng hai terminal. Terminal 1 khởi động stack, migrations và Edge Functions:
 
 ```sh
 npm ci
 npx supabase start -x realtime,imgproxy,studio,logflare,vector,supavisor,postgres-meta
-npx supabase db reset --local --yes
+npx supabase migration up --local
 node scripts/prepare-local-functions-env.mjs
 npx supabase functions serve --env-file .supabase/functions.env
 ```
 
-Chỉ chạy `db reset` với project local disposable vì lệnh này xóa dữ liệu project. Terminal 2 chạy kiểm tra backend; script tạo user/lead synthetic và lưu credentials vào file bị ignore `.supabase/backend-test-users.json` với quyền hạn chế. Không chép file này vào ticket, log, artifact hoặc repo. Sau đó tạo cấu hình frontend riêng và chạy browser test:
+Lần đầu `supabase start` tạo database và áp dụng migrations; ở các lần sau `migration up --local` chỉ áp dụng phần còn thiếu. Terminal 2 chạy kiểm tra backend; script tạo user/lead synthetic và lưu credentials vào file bị ignore `.supabase/backend-test-users.json` với quyền hạn chế. Không chép file này vào ticket, log, artifact hoặc repo. Sau đó tạo cấu hình frontend riêng và chạy browser test:
 
 ```sh
 node scripts/local-backend-check.mjs
@@ -32,6 +32,19 @@ npx playwright test --config=playwright.supabase.config.ts
 ```
 
 Test cấu hình Supabase tách khỏi demo CI. Nó từ chối URL không phải `localhost`, `127.0.0.1` hoặc `::1`; service role chỉ dùng để tạo lead tổng hợp riêng cho lần test và dọn storage/database sau đó. Luồng browser đăng nhập staff, ghi micro giả, upload, lưu Verified, mở link trong browser context chưa đăng nhập, phát/tải audio rồi thu hồi link. Không chạy test với dữ liệu lead thật.
+
+### Chuẩn bị workspace Supabase local cho pilot thủ công
+
+Chạy harness backend và browser trước khi thêm lead pilot vì harness yêu cầu database chưa có lead, mapping hoặc sync job. Browser test tự dọn invite mà nó tạo; sau đó dọn đúng fixtures do harness ghi trong manifest. Các lệnh chỉ chấp nhận API loopback, không gửi email và không ghi Google Sheet:
+
+```sh
+node scripts/cleanup-local-backend-check.mjs
+node scripts/bootstrap-local-admin.mjs <email-admin-pilot>
+node scripts/prepare-local-pilot.mjs
+npm run dev -- --mode supabase --host 127.0.0.1
+```
+
+Bootstrap chỉ tạo Admin đầu tiên khi chưa có Admin hoạt động; mật khẩu ngẫu nhiên được lưu trong file ignored `.supabase/local-admin-credentials.json` với quyền đọc hạn chế. Script pilot tạo mười lead synthetic có ID cố định và source marker riêng. Chạy lại không ghi đè lead đã có hoặc call state; xung đột ID/source sẽ dừng để người vận hành kiểm tra. `.env.supabase.local` chỉ chứa mode, URL loopback và anon key; không đưa service-role key vào frontend. Link mời/khôi phục được Admin tự sao chép và gửi qua kênh nội bộ phù hợp; app không gửi email.
 
 ## 3. Quy trình nhân viên
 
@@ -63,13 +76,13 @@ Sheet nhận kết quả bất đồng bộ; database app là hồ sơ chính. T
 
 ## 6. Rollout Cloudflare Pages
 
-Đây là hướng dẫn deploy, không phải xác nhận app đã được deploy.
+Đây là hướng dẫn deploy, không phải xác nhận app đã được deploy. Với dự án cloud mới của `trieumanh0405`, dùng quy trình đầy đủ tại [HANDOFF-TRIEUMANH0405.md](HANDOFF-TRIEUMANH0405.md), gồm xác nhận project ref, migrations, Auth, secret mới, deploy đủ năm Edge Functions và bootstrap Auth Admin vào cả `profiles` lẫn `team_members`.
 
 1. Chạy đủ checks trong README và local Supabase browser flow. Pilot bằng Supabase project/Sheet riêng, có admin/staff test accounts và quyền ghi rõ ràng.
 2. Cloudflare Pages build command: `npm ci && npm run build`; output directory: `dist`. Không cấu hình service role key trong Pages variables.
 3. Thêm `VITE_APP_MODE=supabase`, `VITE_SUPABASE_URL` và `VITE_SUPABASE_ANON_KEY` làm build-time variables của đúng environment. Anon key là client key và vẫn chịu RLS; mọi mutation/role check phải ở server.
-4. Triển khai migrations, Edge Functions, Storage policy và worker/cron theo release backend; đặt `PUBLIC_APP_URL` đúng origin của Pages và giữ `SHARE_ENCRYPTION_KEY` bền vững. Không đổi encryption key đã dùng để tạo token.
-5. Mở URL Pages, đăng nhập staff thử, tạo bản ghi synthetic có sự cho phép, kiểm tra link/nghe/tải/thu hồi và xác minh Sheets chỉ ghi lên bản pilot copy. Theo dõi job blocked trước khi mời operator.
+4. Đặt `PUBLIC_APP_URL`/`APP_ORIGIN` đúng origin của Pages và giữ hai encryption keys bền vững. Không bật Sheets/Cron nếu chưa có Sheet pilot copy được phép và service account riêng.
+5. Chạy đầy đủ checklist cloud trong handoff trước khi mời operator. Xác nhận bằng chứng theo đúng project ref và Pages deployment; local CI/mocks không chứng minh tích hợp cloud.
 
 ### Rollback
 

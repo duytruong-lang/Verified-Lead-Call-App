@@ -4,7 +4,11 @@
 
 Use `npm run dev:demo` to open the synthetic local workspace. Demo mode is selected explicitly by `.env.demo`; it never connects to Supabase or Google Sheets. Demo lead details stay in this browser's local storage and audio Blobs stay in IndexedDB. Demo recording links work only in the same browser profile and are labeled local-only.
 
-For the live app, configure `VITE_APP_MODE=supabase`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Staff sign in with Supabase Auth. A missing or invalid mode stops startup; a live request failure never switches to demo.
+For the local Supabase app, configure `VITE_APP_MODE=supabase`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`. Members sign in with Supabase Auth. Invitation and recovery callbacks use `/auth/confirm?token_hash=…&type=invite|recovery`, then ask the member to set a password. The URL is cleared after callback handling; reloading the setup page uses the persisted Auth session. A missing or invalid mode stops startup; a live request failure never switches to demo.
+
+Admins can open **Thành viên** when no call draft or recording is active. The team view lists pending, active, and disabled members. Role changes take effect only after the server confirms them. Disabling access requires confirmation and preserves member history. Admins can issue a fresh invite or recovery link; the one-use link is shown temporarily in the open panel for manual delivery. The app does not send the link through email. Demo mode uses synthetic member records and local-only links; it does not invite real accounts.
+
+The **Chỉ xem** role can read lead details, call history, and active handoff links. It cannot claim a call, record/upload audio, save an outcome, change an evaluation, replace a handoff, revoke a share, or open admin settings. The app refreshes role and account status on window focus, Auth events and a visible-page poll. Confirmed loss of write access stops the microphone and clears the unsaved call composer. A temporary Auth/network outage stops capture and pauses mutations while retaining the unsaved audio/form until access can be rechecked.
 
 ## Call a lead
 
@@ -25,4 +29,4 @@ Only admins see **Cấu hình Sheet**. Paste a spreadsheet URL or ID, select its
 
 ## Frontend verification
 
-Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e`. Browser tests use synthetic leads/audio and Chromium's fake microphone. They do not verify a live Supabase, Google Sheets, or Cloudflare connection.
+Run `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e`. The default browser suite uses demo leads/audio and Chromium's fake microphone. The opt-in `npx playwright test --config=playwright.supabase.config.ts` suite uses actual loopback Supabase Auth/DB/Storage/Edge with separately tracked synthetic fixtures. Neither suite verifies cloud hosting, a real Google Sheet, or physical phone audio. See `docs/PILOT-LOCAL-QC.md` for the recorded environment-specific results.

@@ -1,0 +1,41 @@
+/* Hallmark · interface system: Verified Call Workspace · white theme · 1990 red */
+:root {
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f5f5f5;
+  --color-foreground: #111111;
+  --color-muted: #5f5f5f;
+  --color-line: #d7d7d7;
+  --color-accent: #EC2024;
+  --color-accent-hover: #c9161a;
+  --color-action: #c9161a;
+  --color-action-hover: #a40f13;
+  --color-accent-contrast: #ffffff;
+  --color-focus: #9c1014;
+  --color-success: #19613c;
+  --color-success-soft: #eff7f1;
+  --color-error: #9c211f;
+  --color-error-soft: #fff2f1;
+  --font-ui: "Montserrat", Arial, sans-serif;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-card: 16px;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-ui: 180ms;
+  --shadcn-background: var(--color-background);
+  --shadcn-foreground: var(--color-foreground);
+  --shadcn-primary: var(--color-action);
+  --shadcn-primary-foreground: var(--color-accent-contrast);
+  --shadcn-border: var(--color-line);
+  --shadcn-ring: var(--color-focus);
+}

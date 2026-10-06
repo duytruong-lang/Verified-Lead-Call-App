@@ -14,6 +14,14 @@ export interface LeadCallRepository {
   getSession(): Promise<{ actor: import('./types').Actor | null }>;
   signIn(email: string, password: string): Promise<void>;
   signOut(): Promise<void>;
+  onAuthChange(listener: () => void): () => void;
+  acceptAuthLink(tokenHash: string, type: 'invite' | 'recovery'): Promise<void>;
+  completeOnboarding(password: string): Promise<void>;
+  listMembers(): Promise<import('./types').TeamMember[]>;
+  inviteMember(input: { email: string; role: import('./types').MemberRole; idempotencyKey: string }): Promise<import('./types').MemberLink>;
+  issueMemberLink(input: { memberId: UUID; kind: 'invite' | 'recovery'; idempotencyKey: string }): Promise<import('./types').MemberLink>;
+  setMemberRole(input: { memberId: UUID; role: import('./types').MemberRole; expectedVersion: number; idempotencyKey: string }): Promise<import('./types').TeamMember>;
+  setMemberStatus(input: { memberId: UUID; status: 'active' | 'disabled'; expectedVersion: number; idempotencyKey: string }): Promise<import('./types').TeamMember>;
   claimAttempt(leadId: UUID, idempotencyKey: string): Promise<{ claimId: UUID; ordinal: number }>;
   resumeAttempt(claimId: UUID): Promise<{ claimId: UUID; ordinal: number; claimExpiresAt: string }>;
   cancelAttempt(claimId: UUID, idempotencyKey: string): Promise<void>;

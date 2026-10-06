@@ -13,7 +13,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 - There is no automatic SIM calling or phone interception. PC microphone quality for both sides still needs a physical-call pilot.
 - Original reference UI was Vocaroo. Approved scope is a lead workspace with a simple recorder, not a Vocaroo clone.
 - Approved MVP excludes Zalo notification, CRM, assignment, reminders/SLA, customer approval portal, and AI scoring.
-- User chose local-first because cloud accounts are not available. No real Sheet/cloud mutation has been authorized for this implementation.
+- User approved the local UI/Auth/access implementation, then a GitHub handoff to `trieumanh0405`: official website branding, merge through PR, verified private backup and removal of this project’s local Supabase/Colima runtime. The recipient will provision their own Supabase project; no cloud or real Sheet mutation is authorized here.
 - Original Sheet reference was `RAW-DATA-CALL-CENTER`. Its current contents, permissions and automations have not been validated by this final local acceptance. Keep real Sheet IDs/data outside this public memory; use a separately authorized pilot copy.
 
 ## Architecture and navigation
@@ -24,7 +24,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 | Recorder | Browser `getUserMedia` / `MediaRecorder`, browser decode validation; `src/App.tsx` |
 | Mode boundary | `src/adapters/createRepository.ts`, `demo.ts`, `supabase.ts`; explicit mode, no silent fallback |
 | Shared contract | `src/shared/types.ts`, `repository.ts`, `rules.ts`; `docs/API.md` |
-| Database | Supabase Auth/PostgreSQL/RLS/RPC; eight migrations `202610060001`–`202610060008`; `docs/BACKEND.md` |
+| Database | Supabase Auth/PostgreSQL/RLS/RPC; baseline migrations `202610060001`–`202610060008` plus additive pilot membership migrations; `docs/BACKEND.md` |
 | Recording/backend | Private Storage; `call-api`, `public-recording`, shared `media.ts`/`crypto.ts` |
 | Sheet admin UI | `src/components/SheetMappingAdmin.tsx` |
 | Sheet core | `src/integrations/sheets/`; `sheets-admin`, `sheets-worker`; `docs/SHEETS.md` |
@@ -33,6 +33,8 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 | Operations | `docs/OPERATIONS.md`, `BACKEND.md`, `FRONTEND.md`; original requirements `docs/PLAN.md` |
 
 ## Critical behavior already implemented
+
+The original baseline and new UI/auth/member scope are accepted locally; use `.agents/HANDOFF.md` and `docs/PILOT-LOCAL-QC.md` for release-specific evidence. Membership is one workspace, roles Admin/Staff/Viewer, statuses pending/active/disabled, manual invite/recovery links and access disable that retains historical attribution and public recording shares. Cloud/real Sheet/physical audio remain unverified.
 
 - Four queues, oldest-first defaults, periodic/focus refresh while preserving drafts.
 - At most five completed contact attempts. Re-recording, uploads and retry do not increment the count; final evaluation after the fifth remains available.
@@ -55,4 +57,4 @@ Ignored local files: `.supabase/functions.env`, `.supabase/backend-test-users.js
 
 ## Working agreement
 
-Luna implements/fixes/tests/docs, Sol independently reviews/QCs, Astra accepts/hands off. Root coordinates contracts/integration/evidence. Use requested model identifiers from `AGENTS.md`, maximum four active including coordinator, separate worktrees for parallel tasks. Do not replace models silently. Do not push directly to `main`; integration requires CI and Sol review. Read actual status first rather than relying on an old chat, stale process IDs, or this snapshot alone.
+GPT-6 Luna subagents implement/fix/test/document and perform approved local operations; GPT-6.1 Sol independently reviews, QCs and accepts the final handoff. Root coordinates contracts/integration/evidence. Use requested model identifiers from `AGENTS.md`, maximum four active including coordinator, separate worktrees for parallel tasks. Do not replace models silently. Do not push directly to `main`; integration requires CI and Sol review. Read actual status first rather than relying on an old chat, stale process IDs, or this snapshot alone.

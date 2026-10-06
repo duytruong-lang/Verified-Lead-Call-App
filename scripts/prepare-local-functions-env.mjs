@@ -11,8 +11,13 @@ for (const key of ['API_URL', 'ANON_KEY', 'SERVICE_ROLE_KEY']) if (!values[key])
 const envPath = join(root, '.supabase/functions.env');
 const previous = existsSync(envPath) ? Object.fromEntries(readFileSync(envPath, 'utf8').split(/\r?\n/).map((line) => line.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map(([, key, value]) => [key, value])) : {};
 const output = [
+  `SUPABASE_URL=${values.API_URL}`,
+  `SUPABASE_ANON_KEY=${values.ANON_KEY}`,
+  `SUPABASE_SERVICE_ROLE_KEY=${values.SERVICE_ROLE_KEY}`,
   `PUBLIC_SUPABASE_URL=${values.API_URL}`,
   `SHARE_ENCRYPTION_KEY=${previous.SHARE_ENCRYPTION_KEY ?? randomBytes(32).toString('base64url')}`,
+  `TEAM_LINK_ENCRYPTION_KEY=${previous.TEAM_LINK_ENCRYPTION_KEY ?? randomBytes(32).toString('base64url')}`,
+  `TEAM_LINK_TTL_SECONDS=${previous.TEAM_LINK_TTL_SECONDS ?? '3600'}`,
   'PUBLIC_APP_URL=http://127.0.0.1:5173',
   'APP_ORIGIN=http://127.0.0.1:5173',
 ].join('\n') + '\n';

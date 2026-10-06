@@ -48,7 +48,7 @@ test('local Supabase: staff records, verifies, anonymous client listens/download
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();
     await page.getByLabel('Email công việc').fill(staff.email);
-    await page.getByLabel('Mật khẩu').fill(staff.password);
+    await page.getByRole('textbox', { name: 'Mật khẩu' }).fill(staff.password);
     await page.getByRole('button', { name: 'Đăng nhập' }).click();
     await expect(page.getByRole('heading', { name: 'Xác minh lead' })).toBeVisible();
     const leadName = `Browser E2E ${leadId.slice(0, 8)}`;

@@ -90,6 +90,134 @@ test('requires a note for other and rejects unplayable audio', async ({ page }) 
   await expect(page.getByText('Lượt 1 · Khác')).toBeVisible();
 });
 
+test('mobile queue opens a lead detail and returns to the queue without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 780 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'queue');
+  await expect(page.locator('.queue-column')).toBeVisible();
+  await expect(page.locator('.detail-column')).toBeHidden();
+  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
+  await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
+  await expect(page.locator('.queue-column')).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  await page.getByRole('button', { name: 'Quay lại hàng đợi' }).click();
+  await expect(page.locator('.queue-column')).toBeVisible();
+});
+
+test('admin can create a local synthetic invite and copy its temporary action link', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: /Thành viên/ }).click();
+  await expect(page.getByRole('dialog', { name: 'Thành viên workspace' })).toBeVisible();
+  await page.getByRole('button', { name: /Mời thành viên/ }).click();
+  await page.getByLabel('Email công việc').fill('staff@example.test');
+  await page.getByRole('button', { name: 'Tạo liên kết mời' }).click();
+  await expect(page.getByRole('status')).toContainText('Đã tạo liên kết mời');
+  await expect(page.getByText('staff@example.test')).toBeVisible();
+  await expect(page.getByText('Chờ tham gia')).toBeVisible();
+  const link = page.getByLabel('Liên kết dùng một lần');
+  await expect(link).toHaveValue(/\/auth\/confirm\?token_hash=demo-/);
+  await page.getByRole('button', { name: 'Sao chép' }).click();
+  await expect(page.getByRole('button', { name: 'Đã sao chép' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('/auth/confirm?token_hash=demo-');
+});
+
+test('expired team links require a new explicit issuance request', async ({ page }) => {
+  const email = `link-retry-${Date.now()}@example.test`;
+  await page.getByRole('button', { name: 'Thành viên' }).click();
+  await page.getByRole('button', { name: 'Mời thành viên' }).click();
+  await page.getByLabel('Email công việc').fill(email);
+  await page.getByRole('button', { name: 'Tạo liên kết mời' }).click();
+  await expect(page.getByRole('status')).toContainText('Đã tạo liên kết mời');
+  const row = page.locator('.team-member').filter({ hasText: email });
+  await expect(row).toBeVisible();
+  await page.evaluate(() => localStorage.setItem('verified-call-e2e-fault:member-link-expired-once', 'once'));
+  await row.getByRole('button', { name: 'Gửi lại link' }).click();
+  await expect(page.getByRole('alert')).toContainText('Liên kết trước đã hết hạn hoặc được thay thế');
+  await row.getByRole('button', { name: 'Tạo link mới' }).click();
+  await expect(page.getByLabel('Liên kết dùng một lần')).toHaveValue(/\/auth\/confirm\?token_hash=demo-/);
+});
+
+test('sign-in password visibility control is keyboard-accessible and toggles the field type', async ({ page }) => {
+  await page.getByRole('button', { name: 'Đăng xuất' }).click();
+  await expect(page.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();
+  const password = page.getByRole('textbox', { name: 'Mật khẩu' });
+  await password.fill('synthetic-password');
+  await expect(password).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Hiện mật khẩu' }).click();
+  await expect(password).toHaveAttribute('type', 'text');
+  await expect(page.getByRole('button', { name: 'Ẩn mật khẩu' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('invalid auth callback removes the one-time token from the address bar and returns to sign-in', async ({ page }) => {
+  await page.goto('/auth/confirm?token_hash=synthetic-invalid&type=invite');
+  await expect(page.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Liên kết Auth chỉ dùng ở chế độ Supabase');
+  await expect(page).toHaveURL(/\/$/);
+  expect(await page.evaluate(() => window.location.href)).not.toContain('token_hash');
+});
+
+test('sign-in, team dialog, and workspace remain usable at approved viewport widths', async ({ page }) => {
+  await page.getByRole('button', { name: 'Đăng xuất' }).click();
+  await expect(page.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();
+  const signInLogo = page.getByRole('img', { name: '1990 Agency' });
+  await expect(signInLogo).toBeVisible();
+  expect(await signInLogo.evaluate((image) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)).toBe(true);
+  await page.screenshot({ path: '/tmp/verified-call-sign-in.png', fullPage: true });
+  await page.getByLabel('Email công việc').fill('demo@example.test');
+  await page.getByRole('textbox', { name: 'Mật khẩu' }).fill('synthetic-password');
+  await page.getByRole('button', { name: 'Đăng nhập' }).click();
+  await expect(page.getByRole('heading', { name: 'Xác minh lead' })).toBeVisible();
+  const workspaceLogo = page.getByRole('img', { name: '1990 Agency' });
+  await expect(workspaceLogo).toBeVisible();
+  expect(await workspaceLogo.evaluate((image) => image.complete && image.naturalWidth / image.naturalHeight > 3.9)).toBe(true);
+  await page.getByRole('button', { name: 'Thành viên' }).click();
+  await expect(page.getByRole('dialog', { name: 'Thành viên workspace' })).toBeVisible();
+  await page.screenshot({ path: '/tmp/verified-call-team.png', fullPage: true });
+  await page.locator('.ui-dialog-close').click();
+  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
+  await page.evaluate(async () => { await document.fonts.ready; });
+  expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Montserrat');
+  expect(await page.evaluate(() => document.fonts.check('14px Montserrat'))).toBe(true);
+
+  for (const width of [320, 375, 414, 768]) {
+    await page.setViewportSize({ width, height: 820 });
+    if (width <= 640) {
+      await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
+      await expect(page.getByRole('button', { name: 'Quay lại hàng đợi' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Thành viên' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Đăng xuất' })).toBeVisible();
+      const mobileHeaderBounds = await page.evaluate(() => {
+        const bounds = (selector: string) => {
+          const element = document.querySelector(selector);
+          if (!element) throw new Error(`Missing header element: ${selector}`);
+          const { left, right, top, bottom } = element.getBoundingClientRect();
+          return { left, right, top, bottom };
+        };
+        return { logo: bounds('.brand-logo-header'), title: bounds('.brand-copy h1'), members: bounds('.team-open-button'), logout: bounds('.user-button'), header: bounds('.app-header') };
+      });
+      expect(mobileHeaderBounds.logo.left).toBeGreaterThanOrEqual(0);
+      expect(mobileHeaderBounds.logo.right).toBeLessThanOrEqual(width);
+      expect(mobileHeaderBounds.title.left).toBeGreaterThanOrEqual(mobileHeaderBounds.logo.right);
+      expect(mobileHeaderBounds.title.right).toBeLessThanOrEqual(mobileHeaderBounds.members.left);
+      expect(mobileHeaderBounds.members.right).toBeLessThanOrEqual(mobileHeaderBounds.logout.left);
+      expect(mobileHeaderBounds.logout.right).toBeLessThanOrEqual(width);
+      expect(mobileHeaderBounds.title.bottom).toBeLessThanOrEqual(mobileHeaderBounds.header.bottom);
+      await expect(page.locator('.history-empty')).toBeVisible();
+      const mobileBounds = await page.evaluate(() => ({ footer: document.querySelector('.status-footer')!.getBoundingClientRect(), history: document.querySelector('.history-section')!.getBoundingClientRect() }));
+      expect(mobileBounds.footer.top).toBeGreaterThanOrEqual(mobileBounds.history.bottom);
+      expect(Number.parseFloat(await page.locator('.history-empty').evaluate((element) => getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
+    } else {
+      await expect(page.locator('.queue-column')).toBeVisible();
+      await expect(page.locator('.detail-column')).toBeVisible();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `/tmp/verified-call-layout-${width}.png`, fullPage: true });
+  }
+  await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();
+  await expect(page.locator('.recorder')).not.toContainText('Chỉ bắt đầu khi khách hàng đồng ý ghi âm');
+  await expect(page.locator('.rec-copy small')).toHaveCount(0);
+});
+
 test('blocks the sixth saved contact attempt while keeping final evaluation available', async ({ page }) => {
   await page.getByRole('button', { name: /Lê Thu Hà/ }).click();
   for (let index = 1; index <= 5; index += 1) {
@@ -117,8 +245,8 @@ test('retries a committed save with the original frozen idempotency key and coun
   await expect(page.getByRole('alert')).toContainText('response lost after the save committed');
   await expect(page.getByRole('button', { name: 'Có quan tâm' })).toBeDisabled();
   await expect(page.getByLabel(/Ghi chú cuộc gọi/)).toBeDisabled();
-  await expect(page.getByRole('button', { name: /Lưu kết quả/ })).toBeEnabled();
-  await page.getByRole('button', { name: /Lưu kết quả/ }).click();
+  await expect(page.locator('.save-button')).toBeEnabled();
+  await page.locator('.save-button').click();
   await expect(page.getByText('Đã lưu kết quả. Sheet sẽ đồng bộ nền.')).toBeVisible();
   const leadState = await page.evaluate(() => (JSON.parse(localStorage.getItem('verified-call-demo-v1') ?? '{}') as { leads: Array<{ displayName: string; attemptCount: number; attempts: Array<{ state: string }> }> }).leads.find((item) => item.displayName === 'Nguyễn Minh Anh'));
   expect(leadState?.attemptCount).toBe(1);

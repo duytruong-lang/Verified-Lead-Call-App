@@ -15,7 +15,7 @@ const values = Object.fromEntries(status.split(/\r?\n/).flatMap((line) => {
 }));
 const url = values.API_URL;
 if (!url || !values.ANON_KEY || !values.SERVICE_ROLE_KEY) throw new Error('Supabase status omitted required local API or test keys.');
-if (!['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname)) throw new Error('Refusing to write privileged test configuration for a non-loopback URL.');
+if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)) throw new Error('Refusing to write privileged test configuration for a non-loopback URL.');
 const contents = [
   'VITE_APP_MODE=supabase',
   `VITE_SUPABASE_URL=${url}`,

@@ -37,17 +37,39 @@ export function fail(error: unknown): Response {
     staff_required: 'FORBIDDEN', profile_required: 'FORBIDDEN', admin_required: 'FORBIDDEN', share_owner_or_admin_required: 'FORBIDDEN',
     attempt_already_completed: 'ATTEMPT_CONFLICT', idempotency_key_reused: 'IDEMPOTENCY_KEY_REUSED',
     evaluation_invalid: 'VERSION_CONFLICT', sheet_mapping: 'MAPPING_INVALID',
+    authentication_required: 'UNAUTHENTICATED', active_member_required: 'FORBIDDEN', membership_pending: 'FORBIDDEN',
+    member_disabled: 'FORBIDDEN', staff_upload_required: 'FORBIDDEN', recording_owner_required: 'FORBIDDEN',
   };
   const key = Object.keys(codeMap).find((candidate) => message.includes(candidate));
-  return json({ error: { code: key ? codeMap[key] : 'BACKEND_ERROR', message } }, 400);
+  const code = key ? codeMap[key] : 'BACKEND_ERROR';
+  const status = code === 'UNAUTHENTICATED' ? 401 : code === 'FORBIDDEN' ? 403 : 400;
+  return json({ error: { code, message } }, status);
 }
 
-export async function requireActor(user: SupabaseClient): Promise<{ id: string; role: 'admin' | 'staff' }> {
+export async function requireIdentity(user: SupabaseClient): Promise<{ id: string; email: string }> {
   const { data, error } = await user.auth.getUser();
   if (error || !data.user) throw new Error('authentication_required');
-  const { data: profile, error: profileError } = await user.from('profiles').select('role').eq('user_id', data.user.id).single();
-  if (profileError || !profile) throw new Error('profile_required');
-  return { id: data.user.id, role: profile.role };
+  return { id: data.user.id, email: data.user.email ?? '' };
+}
+
+export async function requireActor(
+  user: SupabaseClient,
+  service: SupabaseClient,
+): Promise<{ id: string; role: 'admin' | 'staff' | 'viewer'; status: 'active'; email: string; displayName: string | null }> {
+  const identity = await requireIdentity(user);
+  const { data, error } = await service.rpc('team_auth_context', { p_auth_user_id: identity.id });
+  if (error || !Array.isArray(data) || !data.length) throw new Error('active_member_required');
+  const member = data[0] as Record<string, unknown>;
+  if (member.status !== 'active') throw new Error(member.status === 'pending' ? 'membership_pending' : 'member_disabled');
+  if (member.email === null || String(member.email).toLowerCase() !== identity.email.toLowerCase()) throw new Error('active_member_required');
+  if (!['admin', 'staff', 'viewer'].includes(String(member.role))) throw new Error('active_member_required');
+  return {
+    id: identity.id,
+    role: member.role as 'admin' | 'staff' | 'viewer',
+    status: 'active',
+    email: identity.email,
+    displayName: typeof member.display_name === 'string' ? member.display_name : null,
+  };
 }
 
 export async function createShareToken(): Promise<{ token: string; hash: string; ciphertext: string }> {

@@ -15,7 +15,7 @@ Demo được chọn rõ ràng qua `.env.demo`; dữ liệu lead tổng hợp n�
 
 ## Chạy Supabase local
 
-Chỉ dùng một project local có thể xóa. Việc `db reset` xóa dữ liệu của project local đang chạy; không chạy với project cloud hoặc database chứa dữ liệu cần giữ. Hướng dẫn khởi tạo migrations, Edge Functions, synthetic auth users và khóa local nằm trong [docs/OPERATIONS.md](docs/OPERATIONS.md) và [docs/BACKEND.md](docs/BACKEND.md) sau khi phần backend được tích hợp vào checkout.
+Chỉ dùng một project local có thể xóa. Việc `db reset` xóa dữ liệu của project local đang chạy; không chạy với project cloud hoặc database chứa dữ liệu cần giữ. Hướng dẫn migrations, Edge Functions, synthetic auth users và khóa local nằm trong [docs/OPERATIONS.md](docs/OPERATIONS.md) và [docs/BACKEND.md](docs/BACKEND.md). Dùng [HANDOFF-TRIEUMANH0405.md](docs/HANDOFF-TRIEUMANH0405.md) cho cloud setup của người nhận.
 
 Sau khi local stack, migrations và Edge Functions đang chạy, tạo cấu hình frontend bị Git bỏ qua:
 
@@ -25,6 +25,12 @@ npx playwright test --config=playwright.supabase.config.ts
 ```
 
 Script từ chối URL không phải loopback. Nó đọc test user fixture `.supabase/backend-test-users.json` nhưng không in email/mật khẩu hoặc lưu chúng vào client bundle. Test setup dùng service key chỉ để tạo và dọn lead/audio tổng hợp; các bước trong trình duyệt đăng nhập bằng nhân viên synthetic. Không dùng cấu hình này với project có thật.
+
+## Bàn giao sang Supabase cloud riêng
+
+Người nhận cần tự tạo Supabase project trong organization của họ, tự tạo Auth Admin và secrets mới. Làm theo [hướng dẫn bàn giao cloud cho trieumanh0405](docs/HANDOFF-TRIEUMANH0405.md), gồm migrations, Auth, Edge Functions, Cloudflare Pages và smoke test. Hướng dẫn này chưa phải bằng chứng rằng cloud đã được triển khai. Không chép database, credentials, encryption keys hoặc recording từ local pilot sang GitHub/cloud.
+
+Brand assets hiện dùng Montserrat và logo SVG chính thức; xem [nguồn và hướng dẫn dùng asset](docs/BRAND-ASSETS.md).
 
 ## Kiểm tra frontend
 
@@ -47,6 +53,8 @@ npm run test:e2e
 
 - [Hướng dẫn vận hành](docs/OPERATIONS.md)
 - [Hướng dẫn frontend](docs/FRONTEND.md)
+- [Handoff Supabase cloud cho trieumanh0405](docs/HANDOFF-TRIEUMANH0405.md)
+- [1990 Agency brand assets](docs/BRAND-ASSETS.md)
 - [API và shared contracts](docs/API.md)
 - [Kế hoạch sản phẩm](docs/PLAN.md)
 - [Bản bàn giao](docs/HANDOFF.md)

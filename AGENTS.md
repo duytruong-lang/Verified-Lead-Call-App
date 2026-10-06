@@ -11,8 +11,7 @@ Build a lead verification call workspace. Staff choose a lead imported from one 
 ## Roles
 
 - **GPT-6 Luna (`gpt-6-luna`) — implementation:** owns implementation, migrations, tests, docs, and fixes.
-- **GPT-6.1 Sol (`gpt-6.1-sol`) — independent review and QC:** review each integration and report findings against the plan.
-- **GPT-6 Astra (`gpt-6-astra`) — acceptance and handoff:** evaluate the integrated build after Sol QC and record acceptance evidence.
+- **GPT-6.1 Sol (`gpt-6.1-sol`) — independent review, QC and final acceptance:** review each integration, verify backup/restore before cleanup, and record final handoff evidence. This supersedes the earlier Astra acceptance assignment for the approved GitHub handoff.
 - **Coordinator:** owns shared contracts, manifest, lockfile, migrations, integration order, and evidence tracking. Do not overlap ownership of these files; send requested changes to the coordinator.
 
 Use separate branches/worktrees for parallel tasks. Do not push directly to `main`. Do not commit credentials, real lead data, recordings, or production configuration. Do not connect or mutate a real Sheet or cloud project without explicit authorization. Keep demo data synthetic and demo mode opt-in.
