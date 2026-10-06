@@ -24,9 +24,9 @@ const users = Object.values(manifest.users ?? {}).filter((user) => user && typeo
 const knownUsers = users.filter((user) => user.email.endsWith(`-${manifest.tag}@example.invalid`) || user.email === `invite-${manifest.tag}@example.invalid`);
 if (knownUsers.length !== users.length) throw new Error('Fixture manifest contains an email outside this run tag; refusing cleanup.');
 const authIds = [...new Set(knownUsers.map((user) => user.id).filter((id) => typeof id === 'string'))];
-const invite = users.find((user) => user.email === `invite-${manifest.tag}@example.invalid`);
-if (invite && !invite.id) {
-  const found = await service.rpc('team_find_auth_user', { p_email: invite.email });
+const missingIdUsers = knownUsers.filter((user) => typeof user.id !== 'string');
+for (const user of missingIdUsers) {
+  const found = await service.rpc('team_find_auth_user', { p_email: user.email });
   if (found.error) throw found.error;
   if (found.data?.[0]?.user_id) authIds.push(found.data[0].user_id);
 }

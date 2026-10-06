@@ -20,6 +20,7 @@ const users = {};
 const createdLeadIds = new Set();
 const createdMappingIds = new Set();
 const manifestPath = join(cwd, '.supabase/backend-test-users.json');
+if (existsSync(manifestPath)) throw new Error('A previous backend fixture manifest still exists. Run scripts/cleanup-local-backend-check.mjs first; this harness will not overwrite recovery IDs.');
 function saveManifest() {
   mkdirSync(join(cwd, '.supabase'), { recursive: true });
   writeFileSync(manifestPath, JSON.stringify({ localOnly: true, tag, users, leadIds: [...createdLeadIds], mappingIds: [...createdMappingIds], e2eAdmin: 'admin-keeper', e2eStaff: 'staff-a' }, null, 2), { mode: 0o600 });
