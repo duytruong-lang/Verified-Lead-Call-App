@@ -16,3 +16,9 @@ These decisions describe the approved and implemented MVP. They do not authorize
 12. **GitHub gates.** Branch/PR workflow; no direct main pushes. Do not bypass CI when GitHub cannot allocate a runner. Local acceptance remains valid for its recorded code SHA, while documentation publication may be pending.
 
 See `docs/PLAN.md` for the full approved scope, `docs/API.md` for contract details and `.agents/HANDOFF.md` for current state rather than interpreting this as a new implementation plan.
+
+## 2026-10-06 — UI/access pilot approved; local deployment first
+
+The user explicitly approved implementation of Hallmark/1990 UI polish, real email/password sign-in, manually shared invite/recovery links, and server-enforced Admin/Staff/Viewer access for the existing single workspace. Member removal means access disable, preserving history and public recording links. Montserrat across the UI is the approved temporary typography exception until licensed brand font assets are available.
+
+This extends decisions 9 and 11 without adding multi-tenancy, CRM or assignment. The user subsequently selected Supabase local first and cloud later. A requested new free cloud project was not created because Supabase rejected the account's active-project quota; do not pause, delete or upgrade unrelated projects. No real Sheet was modified. The next acceptance is local Auth/DB/Storage/Edge/UI only, with physical-call and cloud acceptance still separate.

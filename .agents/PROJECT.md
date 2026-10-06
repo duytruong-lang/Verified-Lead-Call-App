@@ -13,7 +13,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 - There is no automatic SIM calling or phone interception. PC microphone quality for both sides still needs a physical-call pilot.
 - Original reference UI was Vocaroo. Approved scope is a lead workspace with a simple recorder, not a Vocaroo clone.
 - Approved MVP excludes Zalo notification, CRM, assignment, reminders/SLA, customer approval portal, and AI scoring.
-- User chose local-first because cloud accounts are not available. No real Sheet/cloud mutation has been authorized for this implementation.
+- User approved UI/auth/access implementation, then chose Supabase local first; cloud is deferred. No real Sheet mutation is authorized in the active local phase.
 - Original Sheet reference was `RAW-DATA-CALL-CENTER`. Its current contents, permissions and automations have not been validated by this final local acceptance. Keep real Sheet IDs/data outside this public memory; use a separately authorized pilot copy.
 
 ## Architecture and navigation
@@ -24,7 +24,7 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 | Recorder | Browser `getUserMedia` / `MediaRecorder`, browser decode validation; `src/App.tsx` |
 | Mode boundary | `src/adapters/createRepository.ts`, `demo.ts`, `supabase.ts`; explicit mode, no silent fallback |
 | Shared contract | `src/shared/types.ts`, `repository.ts`, `rules.ts`; `docs/API.md` |
-| Database | Supabase Auth/PostgreSQL/RLS/RPC; eight migrations `202610060001`–`202610060008`; `docs/BACKEND.md` |
+| Database | Supabase Auth/PostgreSQL/RLS/RPC; baseline migrations `202610060001`–`202610060008` plus additive pilot membership migrations; `docs/BACKEND.md` |
 | Recording/backend | Private Storage; `call-api`, `public-recording`, shared `media.ts`/`crypto.ts` |
 | Sheet admin UI | `src/components/SheetMappingAdmin.tsx` |
 | Sheet core | `src/integrations/sheets/`; `sheets-admin`, `sheets-worker`; `docs/SHEETS.md` |
@@ -33,6 +33,8 @@ Read `AGENTS.md` → `.agents/HANDOFF.md` → `.agents/PLAN.md`. Code and Git ar
 | Operations | `docs/OPERATIONS.md`, `BACKEND.md`, `FRONTEND.md`; original requirements `docs/PLAN.md` |
 
 ## Critical behavior already implemented
+
+The list below describes the accepted baseline. UI/auth/member changes are being integrated; use `.agents/HANDOFF.md` for their current evidence. Approved membership scope is one workspace, roles Admin/Staff/Viewer, statuses pending/active/disabled, manual invite/recovery links and access disable that retains historical attribution and public recording shares.
 
 - Four queues, oldest-first defaults, periodic/focus refresh while preserving drafts.
 - At most five completed contact attempts. Re-recording, uploads and retry do not increment the count; final evaluation after the fifth remains available.

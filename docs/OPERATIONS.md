@@ -11,19 +11,19 @@ Demo chỉ dùng dữ liệu tổng hợp trong browser hiện tại. Lead lưu 
 
 ## 2. Chạy Supabase local an toàn
 
-Chỉ thao tác với project ID `verified-lead-call-local` trong `supabase/config.toml`, chạy trên máy phát triển. `supabase db reset --local` xóa database local, gồm users và lead synthetic; xác nhận project đang là loopback trước khi chạy. Không reset project cloud.
+Chỉ thao tác với project ID `verified-lead-call-local` trong `supabase/config.toml`, chạy trên máy phát triển. Khi tiếp tục project, giữ database và encryption key hiện có, rồi áp dụng migration bổ sung. `supabase db reset --local` xóa database local, gồm users và lead synthetic; không dùng lệnh này để resume. Không reset project cloud.
 
 Trong checkout đã tích hợp backend, dùng hai terminal. Terminal 1 khởi động stack, migrations và Edge Functions:
 
 ```sh
 npm ci
 npx supabase start -x realtime,imgproxy,studio,logflare,vector,supavisor,postgres-meta
-npx supabase db reset --local --yes
+npx supabase migration up --local
 node scripts/prepare-local-functions-env.mjs
 npx supabase functions serve --env-file .supabase/functions.env
 ```
 
-Chỉ chạy `db reset` với project local disposable vì lệnh này xóa dữ liệu project. Terminal 2 chạy kiểm tra backend; script tạo user/lead synthetic và lưu credentials vào file bị ignore `.supabase/backend-test-users.json` với quyền hạn chế. Không chép file này vào ticket, log, artifact hoặc repo. Sau đó tạo cấu hình frontend riêng và chạy browser test:
+Lần đầu `supabase start` tạo database và áp dụng migrations; ở các lần sau `migration up --local` chỉ áp dụng phần còn thiếu. Terminal 2 chạy kiểm tra backend; script tạo user/lead synthetic và lưu credentials vào file bị ignore `.supabase/backend-test-users.json` với quyền hạn chế. Không chép file này vào ticket, log, artifact hoặc repo. Sau đó tạo cấu hình frontend riêng và chạy browser test:
 
 ```sh
 node scripts/local-backend-check.mjs
