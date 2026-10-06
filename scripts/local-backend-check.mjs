@@ -83,18 +83,19 @@ const adminId = await createUser('admin', true, 'admin');
 await createUser('admin-b', true, 'admin');
 const adminKeeperId = await createUser('admin-keeper', true, 'admin');
 const staffId = await createUser('staff-a'); await createUser('staff-b');
+await createUser('upload-staff');
 await createUser('viewer', true, 'viewer');
 await createUser('pending', true, 'staff', 'pending');
 await createUser('disabled', true, 'staff', 'disabled');
 await createUser('no-profile', false);
-const leadId = randomUUID(); const contentionLeadId = randomUUID(); const otherLeadId = randomUUID();
-trackLead(leadId); trackLead(contentionLeadId); trackLead(otherLeadId);
-for (const [id, phone, name] of [[leadId, '+00000000001', 'Synthetic Lead A'], [contentionLeadId, '+00000000002', 'Synthetic Lead B'], [otherLeadId, '+00000000003', 'Synthetic Lead C']]) {
+const leadId = randomUUID(); const contentionLeadId = randomUUID(); const otherLeadId = randomUUID(); const uploadLeadId = randomUUID();
+trackLead(leadId); trackLead(contentionLeadId); trackLead(otherLeadId); trackLead(uploadLeadId);
+for (const [id, phone, name] of [[leadId, '+00000000001', 'Synthetic Lead A'], [contentionLeadId, '+00000000002', 'Synthetic Lead B'], [otherLeadId, '+00000000003', 'Synthetic Lead C'], [uploadLeadId, '+00000000009', 'Synthetic Upload Race Lead']]) {
   const { error } = await service.from('leads').insert({ id, phone, display_name: name, source: 'local-fixture', form_answers: { campaign: 'backend-check' } });
   if (error) throw error;
 }
 const admin = await login('admin'); const adminB = await login('admin-b'); const adminKeeper = await login('admin-keeper'); const a = await login('staff-a'); const b = await login('staff-b');
-const viewer = await login('viewer'); const pending = await login('pending'); const disabled = await login('disabled'); const noProfile = await login('no-profile');
+const viewer = await login('viewer'); const pending = await login('pending'); const disabled = await login('disabled'); const uploadStaff = await login('upload-staff'); const noProfile = await login('no-profile');
 
 const anonymousRead = await anon.from('leads').select('id');
 assert(!anonymousRead.error && anonymousRead.data.length === 0, 'anon cannot read leads through REST/RLS');
@@ -108,6 +109,18 @@ const viewerRead = await viewer.from('leads').select('id').eq('id', leadId).sing
 assert(!viewerRead.error && viewerRead.data.id === leadId, 'active viewer can read the workspace through RLS');
 const viewerWrite = await invoke(viewer, 'claim-attempt', { leadId, idempotencyKey: `viewer-claim-${tag}` });
 assert(Boolean(viewerWrite.error), 'viewer cannot claim or mutate workspace through Edge API');
+const viewerProfileEscalation = await viewer.from('profiles').update({ role: 'admin' }).eq('user_id', users.viewer.id).select('role');
+const viewerProfileAfter = await service.from('profiles').select('role').eq('user_id', users.viewer.id).single();
+assert(Boolean(viewerProfileEscalation.error) || viewerProfileEscalation.data.length === 0, 'authenticated users cannot self-escalate their profile role');
+assert(!viewerProfileAfter.error && viewerProfileAfter.data.role === 'viewer', 'blocked profile escalation leaves the canonical profile role unchanged');
+const viewerRosterEscalation = await viewer.from('team_members').update({ role: 'admin' }).eq('auth_user_id', users.viewer.id).select('role');
+const viewerRosterAfter = await service.from('team_members').select('role').eq('auth_user_id', users.viewer.id).single();
+assert(Boolean(viewerRosterEscalation.error) || viewerRosterEscalation.data.length === 0, 'authenticated users cannot self-escalate the canonical roster');
+assert(!viewerRosterAfter.error && viewerRosterAfter.data.role === 'viewer', 'blocked roster escalation leaves the canonical role unchanged');
+const deniedAdminRpc = await viewer.rpc('team_set_member_role', { p_actor_id: users.viewer.id, p_member_id: users.viewer.id, p_role: 'admin', p_expected_version: 1, p_key: `self-escalate-${tag}`, p_input_hash: 'synthetic' });
+assert(Boolean(deniedAdminRpc.error), 'service-only team mutation RPC cannot be invoked from an authenticated browser client');
+const deniedContextRpc = await viewer.rpc('team_auth_context', { p_auth_user_id: users.viewer.id });
+assert(Boolean(deniedContextRpc.error), 'service-only team identity context is hidden from authenticated browser clients');
 const pendingBusiness = await invoke(pending, 'list-leads', { queue: 'not_called' });
 const disabledBusiness = await invoke(disabled, 'list-leads', { queue: 'not_called' });
 assert(Boolean(pendingBusiness.error) && Boolean(disabledBusiness.error), 'pending and disabled membership are denied from business APIs');
@@ -353,6 +366,9 @@ const inviteLink = invited.data.data;
 assert(inviteLink.kind === 'invite' && inviteLink.member.status === 'pending' && inviteLink.actionLink.startsWith('http://127.0.0.1:5173/auth/confirm'), 'admin invite normalizes address and returns an app callback without SMTP');
 const inviteRetry = await admin.functions.invoke('team-admin', { body: inviteInput });
 assert(!inviteRetry.error && inviteRetry.data.data.actionLink === inviteLink.actionLink && inviteRetry.data.data.member.id === inviteLink.member.id, 'lost-response invite retry returns the same member and action link');
+const duplicateInvite = await admin.functions.invoke('team-admin', { body: { operation: 'invite-member', email: inviteLink.member.email.toUpperCase(), role: 'viewer', idempotencyKey: `invite-duplicate-${tag}` } });
+const duplicateRoster = await service.from('team_members').select('id', { count: 'exact', head: true }).eq('normalized_email', inviteLink.member.email);
+assert(Boolean(duplicateInvite.error) && !duplicateRoster.error && duplicateRoster.count === 1, 'normalized email uniqueness rejects a second invitation without creating a duplicate roster row');
 const inviteUrl = new URL(inviteLink.actionLink);
 const invitedClient = createClient(rootUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const accepted = await invitedClient.auth.verifyOtp({ token_hash: inviteUrl.searchParams.get('token_hash'), type: 'invite' });
@@ -394,6 +410,27 @@ const releasedLead = await service.from('leads').select('claimed_by,attempt_coun
 assert(!canceledDraft.error && canceledDraft.data.state === 'canceled' && !releasedLead.error && releasedLead.data.claimed_by === null && releasedLead.data.attempt_count === 0, 'disable atomically cancels a draft, releases claim, and leaves attempt count unchanged');
 const disabledStaffWrite = await invoke(b, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `disabled-claim-${tag}` });
 assert(Boolean(disabledStaffWrite.error), 'disabled member is denied on the next business request');
+
+const uploadClaim = await invoke(uploadStaff, 'claim-attempt', { leadId: uploadLeadId, idempotencyKey: `stale-upload-claim-${tag}` });
+if (uploadClaim.error) throw uploadClaim.error;
+const uploadStart = await invoke(uploadStaff, 'begin-recording-upload', { leadId: uploadLeadId, claimId: uploadClaim.data.data.claimId, filename: 'disable-race.wav', contentType: 'audio/wav', sizeBytes: wav().byteLength, idempotencyKey: `stale-upload-start-${tag}` });
+if (uploadStart.error) throw uploadStart.error;
+const raceTarget = uploadStart.data.data;
+const raceAudio = wav();
+const racePut = await fetch(raceTarget.uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'audio/wav', 'x-upsert': 'false' }, body: raceAudio });
+assert(racePut.ok, 'synthetic pending recording bytes are uploaded before member disable');
+const uploadRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
+const uploadMember = uploadRoster.data.data.members.find((member) => member.email === users['upload-staff'].email);
+const disableUploadStaff = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: uploadMember.id, status: 'disabled', expectedVersion: uploadMember.version, idempotencyKey: `disable-upload-staff-${tag}` } });
+assert(!disableUploadStaff.error && disableUploadStaff.data.data.status === 'disabled', 'upload owner can be disabled while an object awaits server validation');
+const staleCompletion = await invoke(uploadStaff, 'complete-recording-upload', { recordingId: raceTarget.recordingId, sizeBytes: raceAudio.byteLength, durationSeconds: 1 });
+assert(Boolean(staleCompletion.error), 'an old still-valid Auth token cannot complete an upload after disable');
+const bypassCompletion = await service.rpc('mark_recording_ready', { p_recording_id: raceTarget.recordingId, p_actor_id: users['upload-staff'].id, p_size: raceAudio.byteLength, p_duration: 1, p_checksum: 'synthetic-checksum', p_detected_type: 'audio/wav' });
+assert(Boolean(bypassCompletion.error), 'database finalizer rechecks active membership even when called after byte validation');
+const staleSave = await invoke(uploadStaff, 'save-outcome', { claimId: uploadClaim.data.data.claimId, outcome: 'unreachable', idempotencyKey: `stale-upload-save-${tag}` });
+const uploadLeadAfterDisable = await service.from('leads').select('attempt_count,claimed_by').eq('id', uploadLeadId).single();
+const uploadAttemptAfterDisable = await service.from('contact_attempts').select('state').eq('id', uploadClaim.data.data.claimId).single();
+assert(Boolean(staleSave.error) && !uploadLeadAfterDisable.error && uploadLeadAfterDisable.data.attempt_count === 0 && uploadLeadAfterDisable.data.claimed_by === null && !uploadAttemptAfterDisable.error && uploadAttemptAfterDisable.data.state === 'canceled', 'stale post-disable save is denied, draft is canceled, and attempt count remains zero');
 const draftForViewer = await invoke(a, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `viewer-downgrade-claim-${tag}` });
 assert(!draftForViewer.error, 'staff can claim a lead before viewer downgrade');
 const downgrade = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: staffARow.id, role: 'viewer', expectedVersion: staffARow.version, idempotencyKey: `downgrade-staff-${tag}` } });
@@ -407,6 +444,8 @@ const staleVersion = await admin.functions.invoke('team-admin', { body: { operat
 assert(Boolean(staleVersion.error), 'stale member version cannot overwrite a newer role change');
 const restoreStaff = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: staffARow.id, role: 'staff', expectedVersion: downgrade.data.data.version, idempotencyKey: `restore-staff-${tag}` } });
 assert(!restoreStaff.error && restoreStaff.data.data.role === 'staff', 'synthetic browser-test staff is restored after role enforcement checks');
+const persistentPublicShare = await fetch(`${rootUrl}/functions/v1/public-recording`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: anonKey }, body: JSON.stringify({ token }) });
+assert(persistentPublicShare.ok, 'public recording share remains resolvable after its owner changes role');
 
 const currentAdminRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
 const currentAdminA = currentAdminRoster.data.data.members.find((member) => member.id === adminA.id);
