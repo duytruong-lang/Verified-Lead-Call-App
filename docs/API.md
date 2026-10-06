@@ -41,4 +41,23 @@ Workers acquire a singleton global worker lease before polling or writing, then 
 
 ## Initial shared types
 
+## Pilot membership and authentication extension
+
+The pilot remains one shared internal workspace. Member roles are `admin`, `staff`, and `viewer`; `service` is an internal actor type, never a selectable team role. Every member has `pending`, `active`, or `disabled` status. Only active members can read workspace data; only active admin/staff can mutate call state. Existing staff ownership and share-revocation rules remain in force. Public recording tokens remain independent of member access revocation.
+
+`TeamMember` exposes `id`, `email`, `displayName`, `role`, `status`, `version`, and `createdAt`. The authenticated `team-admin` endpoint uses the usual `{data: result}` envelope:
+
+| Operation | Input | Result |
+| --- | --- | --- |
+| `list-members` | none | `{members: TeamMember[]}`; admin only |
+| `invite-member` | normalized email, role, idempotencyKey | `MemberLink`; admin only; duplicate/retry cannot create another identity |
+| `issue-member-link` | memberId, kind (`invite` or `recovery`), idempotencyKey | `MemberLink`; admin only |
+| `set-member-role` | memberId, role, expectedVersion, idempotencyKey | updated `TeamMember` |
+| `set-member-status` | memberId, status (`active` or `disabled`), expectedVersion, idempotencyKey | updated `TeamMember`; cannot activate an unaccepted invitation |
+| `complete-onboarding` | password | authenticated invite/recovery user's password setup; pending membership activates only after server-side Auth update |
+
+`MemberLink` contains `member`, `kind`, `actionLink`, and `expiresAt`. Its link is a transient secret shown only to the administrator; it must never appear in logs, audit payloads, fixtures, or committed files. The app consumes `/auth/confirm?token_hash=...&type=invite|recovery` through Supabase `verifyOtp`, removes token material from the browser URL, and presents password setup. Signup is disabled; no automated email delivery is required for this pilot.
+
+Role/status changes are server-authoritative, audited, version checked, and replay-safe. A transaction prevents self-demotion/disable and loss of the last active administrator, and cancels open claims when a member loses write access without incrementing completed attempts. Authorization is rechecked at final upload completion as well as request entry. Disabling an account preserves call history and previously issued public recording links.
+
 The TypeScript interfaces in `src/shared/types.ts` are the source for this contract. Extend them with versioned changes. Do not put Google access tokens, signed audio URLs, lead data, or credentials in Git or logs.

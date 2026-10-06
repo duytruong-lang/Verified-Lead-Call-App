@@ -17,12 +17,34 @@ export type LeadQueue = 'not_called' | 'in_progress' | 'callback' | 'finished';
 export type RecordingState = 'uploading' | 'validating' | 'ready' | 'rejected' | 'failed';
 export type ShareState = 'active' | 'revoked';
 export type AttemptState = 'draft' | 'completed' | 'canceled';
-export type ActorRole = 'admin' | 'staff' | 'service';
+export type MemberRole = 'admin' | 'staff' | 'viewer';
+export type MemberStatus = 'pending' | 'active' | 'disabled';
+export type ActorRole = MemberRole | 'service';
 export type SyncState = 'pending' | 'running' | 'succeeded' | 'retrying' | 'blocked' | 'superseded';
 
 export interface Actor {
   id: UUID;
   role: ActorRole;
+  status: MemberStatus;
+  email?: string;
+  displayName?: string | null;
+}
+
+export interface TeamMember {
+  id: UUID;
+  email: string;
+  displayName: string | null;
+  role: MemberRole;
+  status: MemberStatus;
+  version: number;
+  createdAt: string;
+}
+
+export interface MemberLink {
+  member: TeamMember;
+  kind: 'invite' | 'recovery';
+  actionLink: string;
+  expiresAt: string;
 }
 
 export interface LeadSummary {
