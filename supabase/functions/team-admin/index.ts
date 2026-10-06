@@ -78,7 +78,7 @@ Deno.serve(async (request) => {
         const member = await rpc<MemberRow>(service, 'team_reserve_invitation', {
           p_actor_id: identity.id, p_email: email, p_role: body.role, p_key: key, p_input_hash: inputHash,
         });
-        result = await issueLink({ service, actorId: identity.id, member, kind: 'invite', key, inputHash, createAuthUser: true });
+        result = await issueLink({ service, actorId: identity.id, member, kind: 'invite', key, inputHash });
         break;
       }
       case 'issue-member-link': {
@@ -90,7 +90,7 @@ Deno.serve(async (request) => {
         const member = members.find((row) => row.id === memberId);
         if (!member) throw new Error('member_not_found');
         const inputHash = await inputFingerprint({ operation, memberId, kind });
-        result = await issueLink({ service, actorId: identity.id, member, kind, key, inputHash, createAuthUser: false });
+        result = await issueLink({ service, actorId: identity.id, member, kind, key, inputHash });
         break;
       }
       case 'set-member-role': {
@@ -149,15 +149,25 @@ async function issueLink(args: {
   kind: LinkKind;
   key: string;
   inputHash: string;
-  createAuthUser: boolean;
 }): Promise<{ member: ReturnType<typeof toMember>; kind: LinkKind; actionLink: string; expiresAt: string }> {
-  const { service, actorId, member, kind, key, inputHash, createAuthUser } = args;
+  const { service, actorId, member, kind, key, inputHash } = args;
   if (kind === 'invite' && member.status !== 'pending') throw new Error('member_link_not_allowed');
   if (kind === 'recovery' && member.status !== 'active') throw new Error('member_link_not_allowed');
 
   // Validate known configuration before reserving the durable issuance gate.
   const encryptionKey = requiredSecret('TEAM_LINK_ENCRYPTION_KEY');
   const baseUrl = appUrl();
+  // An older Auth identity must never be adopted as a team member. Run this
+  // ownership check for both initial invites and later resend attempts before
+  // opening the durable link-issuance quarantine.
+  let authUserId = member.auth_user_id;
+  if (kind === 'invite' && !authUserId) {
+    const existing = await findAuthUser(service, member.email);
+    if (existing) {
+      if (Date.parse(existing.created_at) < Date.parse(member.created_at)) throw new Error('auth_user_already_member');
+      authUserId = existing.user_id;
+    }
+  }
   const leaseToken = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + linkTtlSeconds() * 1000).toISOString();
   // Keep a member-wide quarantine past the link lifetime if generateLink's
@@ -170,15 +180,6 @@ async function issueLink(args: {
   if (reservation.state === 'ready' && reservation.ciphertext && reservation.expiresAt) {
     const token = await decryptMemberToken(reservation.ciphertext, encryptionKey);
     return { member: toMember(member), kind, actionLink: memberActionLink(baseUrl, token.tokenHash, token.verificationType), expiresAt: reservation.expiresAt };
-  }
-
-  let authUserId = member.auth_user_id;
-  if (createAuthUser && !authUserId) {
-    const existing = await findAuthUser(service, member.email);
-    if (existing) {
-      if (Date.parse(existing.created_at) < Date.parse(member.created_at)) throw new Error('auth_user_already_member');
-      authUserId = existing.user_id;
-    }
   }
 
   let tokenHash: string;

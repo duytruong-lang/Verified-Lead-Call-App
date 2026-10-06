@@ -371,6 +371,22 @@ assert(Boolean(selfRole.error) && Boolean(selfDisable.error), 'admin cannot demo
 
 // Verify the invite, discard the session before setting a password, then prove
 // that a fresh recovery token can resume the still-pending identity.
+const olderAuthEmail = `older-unconfirmed-${tag}@example.invalid`;
+const olderAuth = await service.auth.admin.createUser({ email: olderAuthEmail, password: randomBytes(24).toString('base64url'), email_confirm: false, user_metadata: { display_name: 'Synthetic pre-existing identity' } });
+if (olderAuth.error) throw olderAuth.error;
+users.olderUnconfirmed = { id: olderAuth.data.user.id, email: olderAuthEmail, password: null };
+users.olderReservation = { id: null, email: olderAuthEmail, password: null };
+saveManifest();
+const oldIdentityInvite = await invokeTeam(admin, { operation: 'invite-member', email: olderAuthEmail, role: 'staff', idempotencyKey: `older-auth-invite-${tag}` });
+const oldIdentityMember = await service.from('team_members').select('id,status,auth_user_id').eq('normalized_email', olderAuthEmail).single();
+if (oldIdentityMember.error) throw oldIdentityMember.error;
+users.olderReservation.memberId = oldIdentityMember.data.id;
+saveManifest();
+assert(Boolean(oldIdentityInvite.error) && oldIdentityMember.data.status === 'pending' && oldIdentityMember.data.auth_user_id === null, 'initial invite refuses an older unconfirmed Auth identity without binding it');
+const oldIdentityResend = await invokeTeam(admin, { operation: 'issue-member-link', memberId: oldIdentityMember.data.id, kind: 'invite', idempotencyKey: `older-auth-resend-${tag}` });
+const oldIdentityLock = await service.from('team_member_link_locks').select('member_id').eq('member_id', oldIdentityMember.data.id).maybeSingle();
+assert(Boolean(oldIdentityResend.error) && !oldIdentityLock.error && oldIdentityLock.data === null, 'invite resend also refuses the older Auth identity before creating a link issuance reservation');
+
 users.invited = { id: null, email: `invite-${tag}@example.invalid`, password: null };
 saveManifest();
 const inviteInput = { operation: 'invite-member', email: `  Invite-${tag}@Example.Invalid `, role: 'viewer', idempotencyKey: `invite-${tag}-key` };

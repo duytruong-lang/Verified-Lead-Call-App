@@ -24,6 +24,7 @@ const users = Object.values(manifest.users ?? {}).filter((user) => user && typeo
 const knownUsers = users.filter((user) => user.email.endsWith(`-${manifest.tag}@example.invalid`) || user.email === `invite-${manifest.tag}@example.invalid`);
 if (knownUsers.length !== users.length) throw new Error('Fixture manifest contains an email outside this run tag; refusing cleanup.');
 const authIds = [...new Set(knownUsers.map((user) => user.id).filter((id) => typeof id === 'string'))];
+const knownEmails = [...new Set(knownUsers.map((user) => user.email.toLowerCase()))];
 const missingIdUsers = knownUsers.filter((user) => typeof user.id !== 'string');
 for (const user of missingIdUsers) {
   const found = await service.rpc('team_find_auth_user', { p_email: user.email });
@@ -61,9 +62,15 @@ if (mappingIds.length) {
 if (authIds.length) {
   const profiles = await service.from('profiles').update({ status: 'disabled' }).in('user_id', authIds);
   if (profiles.error) throw profiles.error;
-  const members = await service.from('team_members').select('id,version').in('auth_user_id', authIds);
+}
+if (knownEmails.length) {
+  const members = await service.from('team_members').select('id,version,auth_user_id,status').in('normalized_email', knownEmails);
   if (members.error) throw members.error;
+  if (members.data.some((member) => member.auth_user_id && !authIds.includes(member.auth_user_id))) {
+    throw new Error('A tagged fixture email is bound to an Auth ID absent from the manifest; refusing cleanup.');
+  }
   for (const member of members.data) {
+    if (member.status === 'disabled') continue;
     const result = await service.from('team_members').update({ status: 'disabled', version: Number(member.version) + 1 }).eq('id', member.id);
     if (result.error) throw result.error;
   }
