@@ -18,13 +18,16 @@ const tag = randomUUID().slice(0, 8);
 const password = randomBytes(24).toString('base64url');
 const users = {};
 
-async function createUser(label, withProfile = true, role = 'staff') {
+async function createUser(label, withProfile = true, role = 'staff', status = 'active') {
   const email = `${label}-${tag}@example.invalid`;
   const { data, error } = await service.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { display_name: `Synthetic ${label}` } });
   if (error) throw error;
   if (withProfile) {
-    const profile = await service.from('profiles').insert({ user_id: data.user.id, role, display_name: `Synthetic ${label}` });
+    const activatedAt = status === 'active' ? new Date().toISOString() : null;
+    const profile = await service.from('profiles').insert({ user_id: data.user.id, role, display_name: `Synthetic ${label}`, status, email, activated_at: activatedAt });
     if (profile.error) throw profile.error;
+    const member = await service.from('team_members').insert({ auth_user_id: data.user.id, email, normalized_email: email.toLowerCase(), display_name: `Synthetic ${label}`, role, status, activated_at: activatedAt, invited_at: status === 'pending' ? new Date().toISOString() : null });
+    if (member.error) throw member.error;
   }
   users[label] = { id: data.user.id, email, password };
   return data.user.id;
@@ -59,13 +62,19 @@ function wav(seconds = 1) {
 }
 
 const adminId = await createUser('admin', true, 'admin');
-const staffId = await createUser('staff-a'); await createUser('staff-b'); await createUser('no-profile', false);
+const adminBId = await createUser('admin-b', true, 'admin');
+const staffId = await createUser('staff-a'); await createUser('staff-b');
+const viewerId = await createUser('viewer', true, 'viewer');
+const pendingId = await createUser('pending', true, 'staff', 'pending');
+const disabledId = await createUser('disabled', true, 'staff', 'disabled');
+await createUser('no-profile', false);
 const leadId = randomUUID(); const contentionLeadId = randomUUID(); const otherLeadId = randomUUID();
 for (const [id, phone, name] of [[leadId, '+00000000001', 'Synthetic Lead A'], [contentionLeadId, '+00000000002', 'Synthetic Lead B'], [otherLeadId, '+00000000003', 'Synthetic Lead C']]) {
   const { error } = await service.from('leads').insert({ id, phone, display_name: name, source: 'local-fixture', form_answers: { campaign: 'backend-check' } });
   if (error) throw error;
 }
-const admin = await login('admin'); const a = await login('staff-a'); const b = await login('staff-b'); const noProfile = await login('no-profile');
+const admin = await login('admin'); const adminB = await login('admin-b'); const a = await login('staff-a'); const b = await login('staff-b');
+const viewer = await login('viewer'); const pending = await login('pending'); const disabled = await login('disabled'); const noProfile = await login('no-profile');
 
 const anonymousRead = await anon.from('leads').select('id');
 assert(!anonymousRead.error && anonymousRead.data.length === 0, 'anon cannot read leads through REST/RLS');
@@ -75,6 +84,16 @@ const anonymousWorkerRpc = await anon.rpc('sheets_claim_worker', { worker_id: `a
 assert(Boolean(anonymousWorkerRpc.error), 'anon cannot acquire service-only Sheet worker lease');
 const noProfileList = await invoke(noProfile, 'list-leads', { queue: 'not_called' });
 assert(Boolean(noProfileList.error), 'authenticated user without profile cannot use staff API');
+const viewerRead = await viewer.from('leads').select('id').eq('id', leadId).single();
+assert(!viewerRead.error && viewerRead.data.id === leadId, 'active viewer can read the workspace through RLS');
+const viewerWrite = await invoke(viewer, 'claim-attempt', { leadId, idempotencyKey: `viewer-claim-${tag}` });
+assert(Boolean(viewerWrite.error), 'viewer cannot claim or mutate workspace through Edge API');
+const pendingBusiness = await invoke(pending, 'list-leads', { queue: 'not_called' });
+const disabledBusiness = await invoke(disabled, 'list-leads', { queue: 'not_called' });
+assert(Boolean(pendingBusiness.error) && Boolean(disabledBusiness.error), 'pending and disabled membership are denied from business APIs');
+const pendingSession = await pending.functions.invoke('team-admin', { body: { operation: 'get-session' } });
+const disabledSession = await disabled.functions.invoke('team-admin', { body: { operation: 'get-session' } });
+assert(!pendingSession.error && pendingSession.data.data.actor.status === 'pending' && !disabledSession.error && disabledSession.data.data.actor.status === 'disabled', 'get-session exposes own pending/disabled state for onboarding and access messaging');
 const staffRead = await a.from('leads').select('id').eq('id', leadId).single();
 assert(!staffRead.error && staffRead.data.id === leadId, 'staff profile can read lead through RLS');
 const forbiddenWrite = await a.from('leads').update({ phone: '+00000000999' }).eq('id', leadId).select('id');
@@ -285,6 +304,65 @@ const identityResolved = await service.rpc('sheets_resolve_identity_conflict', {
 assert(!identityResolved.error && identityResolved.data === true, 'verified identity repair clears the persisted barrier');
 const identityReleased = await service.rpc('sheets_claim_jobs', { worker_id: `worker-identity-repaired-${tag}`, job_limit: 100, lease_seconds: 60 });
 assert(!identityReleased.error && identityReleased.data.some((job) => job.lead_id === identityLeadId && job.desired_version === 1), 'current output becomes claimable only after identity repair');
+
+const adminRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
+const adminA = adminRoster.data.data.members.find((member) => member.id === users.admin.id || member.email === users.admin.email);
+const adminBRow = adminRoster.data.data.members.find((member) => member.email === users['admin-b'].email);
+const selfRole = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: adminA.id, role: 'staff', expectedVersion: adminA.version, idempotencyKey: `self-role-${tag}` } });
+const selfDisable = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: adminA.id, status: 'disabled', expectedVersion: adminA.version, idempotencyKey: `self-disable-${tag}` } });
+assert(Boolean(selfRole.error) && Boolean(selfDisable.error), 'admin cannot demote or disable itself');
+const draftForViewer = await invoke(a, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `viewer-downgrade-claim-${tag}` });
+assert(!draftForViewer.error, 'staff can claim a lead before viewer downgrade');
+const downgrade = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-role', memberId: staffMember.id, role: 'viewer', expectedVersion: staffMember.version, idempotencyKey: `downgrade-staff-${tag}` } });
+assert(!downgrade.error && downgrade.data.data.role === 'viewer', 'admin can change a member to viewer with version fencing');
+const viewerDraft = await service.from('contact_attempts').select('state').eq('id', draftForViewer.data.data.claimId).single();
+const viewerReleasedLead = await service.from('leads').select('claimed_by,attempt_count').eq('id', otherLeadId).single();
+assert(!viewerDraft.error && viewerDraft.data.state === 'canceled' && !viewerReleasedLead.error && viewerReleasedLead.data.claimed_by === null && viewerReleasedLead.data.attempt_count === 0, 'viewer downgrade cancels draft and releases claim without incrementing attempts');
+const downgradedWrite = await invoke(a, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `viewer-denied-${tag}` });
+assert(Boolean(downgradedWrite.error), 'viewer role immediately loses write access');
+const staleVersion = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: staffMember.id, status: 'disabled', expectedVersion: staffMember.version, idempotencyKey: `stale-version-${tag}` } });
+assert(Boolean(staleVersion.error), 'stale member version cannot overwrite a newer role change');
+const concurrentLastAdmin = await Promise.all([
+  admin.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: adminBRow.id, status: 'disabled', expectedVersion: adminBRow.version, idempotencyKey: `last-admin-a-${tag}` } }),
+  adminB.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: adminA.id, status: 'disabled', expectedVersion: adminA.version, idempotencyKey: `last-admin-b-${tag}` } }),
+]);
+assert(concurrentLastAdmin.filter((response) => !response.error).length === 1, 'concurrent cross-admin disables preserve one active administrator');
+const remainingAdmins = await service.from('team_members').select('id').eq('role', 'admin').eq('status', 'active');
+assert(!remainingAdmins.error && remainingAdmins.data.length === 1, 'last-admin invariant holds after concurrent requests');
+
+// Admin-only invite flow creates a local Auth identity but never sends mail. The
+// returned token_hash is kept in memory and verified through the local Auth API.
+const inviteInput = { operation: 'invite-member', email: `  Invite-${tag}@Example.Invalid `, role: 'viewer', idempotencyKey: `invite-${tag}-key` };
+const invited = await admin.functions.invoke('team-admin', { body: inviteInput });
+if (invited.error) throw invited.error;
+const inviteLink = invited.data.data;
+assert(inviteLink.kind === 'invite' && inviteLink.member.status === 'pending' && inviteLink.actionLink.startsWith('http://127.0.0.1:5173/auth/confirm'), 'admin invite normalizes address and returns an app callback without SMTP');
+const inviteRetry = await admin.functions.invoke('team-admin', { body: inviteInput });
+assert(!inviteRetry.error && inviteRetry.data.data.actionLink === inviteLink.actionLink && inviteRetry.data.data.member.id === inviteLink.member.id, 'lost-response invite retry returns the same member and action link');
+const inviteUrl = new URL(inviteLink.actionLink);
+const invitedClient = createClient(rootUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+const accepted = await invitedClient.auth.verifyOtp({ token_hash: inviteUrl.searchParams.get('token_hash'), type: 'invite' });
+assert(!accepted.error && Boolean(accepted.data.session), 'invite token establishes the invited Auth session');
+const onboardingPassword = randomBytes(24).toString('base64url');
+const onboarding = await invitedClient.functions.invoke('team-admin', { body: { operation: 'complete-onboarding', password: onboardingPassword } });
+assert(!onboarding.error && onboarding.data.data.member.status === 'active', 'onboarding sets password server-side and activates only the accepted pending invite');
+const activeInvite = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
+assert(!activeInvite.error && activeInvite.data.data.members.some((member) => member.id === inviteLink.member.id && member.role === 'viewer' && member.status === 'active'), 'normalized invitation is unique and visible in canonical roster');
+const recoveryInput = { operation: 'issue-member-link', memberId: inviteLink.member.id, kind: 'recovery', idempotencyKey: `recovery-${tag}-key` };
+const recovery = await admin.functions.invoke('team-admin', { body: recoveryInput });
+const recoveryRetry = await admin.functions.invoke('team-admin', { body: recoveryInput });
+assert(!recovery.error && !recoveryRetry.error && recovery.data.data.actionLink === recoveryRetry.data.data.actionLink, 'recovery link retry replays encrypted token without another Auth generation');
+const disableClaim = await invoke(b, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `disable-claim-${tag}` });
+assert(!disableClaim.error, 'synthetic staff can claim work before disable');
+const staffRoster = await admin.functions.invoke('team-admin', { body: { operation: 'list-members' } });
+const staffMember = staffRoster.data.data.members.find((member) => member.email === users['staff-b'].email);
+const disableStaff = await admin.functions.invoke('team-admin', { body: { operation: 'set-member-status', memberId: staffMember.id, status: 'disabled', expectedVersion: staffMember.version, idempotencyKey: `disable-staff-${tag}` } });
+assert(!disableStaff.error && disableStaff.data.data.status === 'disabled', 'admin can soft-disable another member with version fencing');
+const canceledDraft = await service.from('contact_attempts').select('state').eq('id', disableClaim.data.data.claimId).single();
+const releasedLead = await service.from('leads').select('claimed_by,attempt_count').eq('id', otherLeadId).single();
+assert(!canceledDraft.error && canceledDraft.data.state === 'canceled' && !releasedLead.error && releasedLead.data.claimed_by === null && releasedLead.data.attempt_count === 0, 'disable atomically cancels a draft, releases claim, and leaves attempt count unchanged');
+const disabledStaffWrite = await invoke(b, 'claim-attempt', { leadId: otherLeadId, idempotencyKey: `disabled-claim-${tag}` });
+assert(Boolean(disabledStaffWrite.error), 'disabled member is denied on the next business request');
 
 const credentials = { localOnly: true, users, leadIds: { primary: leadId, contention: contentionLeadId, other: otherLeadId }, createdBy: adminId };
 mkdirSync(join(cwd, '.supabase'), { recursive: true });

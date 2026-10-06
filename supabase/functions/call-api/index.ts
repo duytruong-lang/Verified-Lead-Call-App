@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'POST required' } }, 405);
   try {
     const { user, service } = clients(req);
-    const actor = await requireActor(user);
+    const actor = await requireActor(user, service);
     const body = await req.json();
     const op = body.operation ?? body.op;
     let result: unknown;
@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
         break;
       }
       case 'complete-recording-upload': {
+        if (!['admin', 'staff'].includes(actor.role)) throw new Error('staff_upload_required');
         const { data: meta, error: metaError } = await service.from('recordings').select('object_key,content_type').eq('id', body.recordingId).single();
         if (metaError || !meta) throw new Error('recording_not_found');
         const { data: file, error: downloadError } = await service.storage.from('lead-recordings').download(meta.object_key);
@@ -71,7 +72,7 @@ Deno.serve(async (req) => {
         try { duration = (await validateAudio(bytes, meta.content_type)).durationSeconds; } catch { validationError = true; }
         const checksum = hex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
         const ready = await read(service.rpc('mark_recording_ready', {
-          p_recording_id: body.recordingId, p_size: bytes.byteLength, p_duration: duration,
+          p_recording_id: body.recordingId, p_actor_id: actor.id, p_size: bytes.byteLength, p_duration: duration,
           p_checksum: checksum, p_detected_type: detected?.mime ?? 'application/octet-stream',
         }));
         result = recording(ready as Record<string, unknown>);
