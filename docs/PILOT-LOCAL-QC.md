@@ -40,3 +40,7 @@ Admin local đã được bootstrap bằng email user cung cấp; password đư�
 Xem [OPERATIONS.md](OPERATIONS.md) để khởi động stack, chạy bộ test trước khi nạp pilot, dọn đúng fixtures và tạo local admin/10 lead giả. Không dùng `db reset` khi resume. Giữ encryption keys, database và file credentials bị ignore; không đưa service role vào frontend.
 
 Cloud Supabase/Cloudflare, Google Sheet thật/Cron, service account và cuộc gọi vật lý hai chiều **chưa chạy**. User đã chọn local trước. Audio test dùng microphone giả/file tổng hợp; operator vẫn cần thử điện thoại loa ngoài và micro PC. Free cloud quota chưa được giải quyết.
+
+## Post-persistence operator smoke
+
+Sau khi lưu source về thư mục project gốc và mở lại Colima/Supabase mà không reset database, browser smoke đăng nhập bằng admin đã provision, xác nhận đủ 10 lead giả, nút quản lý thành viên, Montserrat thực sự tải trên bản Supabase local, rồi đăng xuất: **pass**. Không đổi dữ liệu lead. Bước này xác nhận cả runtime và font từ thư mục bàn giao, bổ sung cho cảnh báo symlink của worktree test trước đó.

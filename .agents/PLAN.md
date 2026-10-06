@@ -18,7 +18,7 @@ Run typecheck, lint, Vitest, build, demo Playwright and local Supabase Auth/DB/S
 
 ## Risks
 
-Original synchronized checkout has historical Git refs/objects blocking reads. Use clean local execution checkout under `/private/tmp/verified-call-pilot-repo`, preserve original history/private files, and copy integrated changes back before handoff. Local Docker/Colima/Deno are installed; the local stack is healthy with an admin and ten synthetic pilot leads. Host free space remains limited. Cloud project creation was rejected by Supabase free quota; no cloud pilot resource was created.
+Original synchronized checkout has historical Git refs/objects blocking reads. Source has been copied back with backups. Use the durable clean checkout `.supabase/integration` for Git operations and preserve original history/private files. Local Docker/Colima/Deno are installed; the local stack is healthy with an admin and ten synthetic pilot leads. After cleanup, host free space is about 24 GB. Cloud project creation was rejected by Supabase free quota; no cloud pilot resource was created.
 
 ## What is needed later
 
