@@ -29,7 +29,7 @@ function readState(): State {
 const saved = readState();
 const state: State = { ...saved, saves: saved.saves ?? {}, sharesByKey: saved.sharesByKey ?? {}, replacementsByKey: saved.replacementsByKey ?? {}, uploadTargets: saved.uploadTargets ?? {} };
 function persist() { localStorage.setItem(DB_KEY, JSON.stringify(state)); }
-function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once' | 'expired-upload-target-once') {
+function consumeDemoFault(name: 'create-share-once' | 'save-lost-reply-once' | 'expired-upload-target-once' | 'member-link-expired-once') {
   if (localStorage.getItem(`verified-call-e2e-fault:${name}`) !== 'once') return false;
   localStorage.removeItem(`verified-call-e2e-fault:${name}`); return true;
 }
@@ -64,6 +64,7 @@ export class DemoRepository implements LeadCallRepository {
     const link = this.demoMemberLink(member, 'invite'); demoMemberLinks.set(`invite:${input.idempotencyKey}`, link); return structuredClone(link);
   }
   async issueMemberLink(input: { memberId: UUID; kind: 'invite' | 'recovery'; idempotencyKey: string }): Promise<MemberLink> {
+    if (consumeDemoFault('member-link-expired-once')) throw new RepositoryError('Liên kết trước đã hết hạn hoặc được thay thế.', 'LINK_EXPIRED');
     const replay = demoMemberLinks.get(`link:${input.idempotencyKey}`);
     if (replay) return structuredClone(replay);
     const member = teamMembers.find((item) => item.id === input.memberId);

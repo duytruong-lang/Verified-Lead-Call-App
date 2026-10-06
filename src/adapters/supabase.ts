@@ -5,6 +5,15 @@ import type { Actor, LeadDetails, LeadQueue, LeadSummary, MemberLink, MemberRole
 
 type EdgeFunctionName = 'list-leads' | 'get-lead' | 'claim-attempt' | 'resume-attempt' | 'cancel-attempt' | 'save-outcome' | 'begin-recording-upload' | 'complete-recording-upload' | 'complete-evaluation' | 'create-share' | 'replace-handoff' | 'revoke-share' | 'resolve-share' | 'validate-sheet-mapping' | 'enqueue-sheet-sync';
 
+export function authErrorCode(error: unknown): 'AUTH_ERROR' | 'AUTH_UNAVAILABLE' {
+  const candidate = error as { message?: unknown; name?: unknown; status?: unknown } | null;
+  const message = typeof candidate?.message === 'string' ? candidate.message : '';
+  const name = typeof candidate?.name === 'string' ? candidate.name : '';
+  const status = typeof candidate?.status === 'number' ? candidate.status : undefined;
+  if (status === 0 || (status !== undefined && status >= 500) || name === 'AuthRetryableFetchError' || /failed to fetch|network|timeout|temporar(?:y|ily) unavailable/i.test(message)) return 'AUTH_UNAVAILABLE';
+  return 'AUTH_ERROR';
+}
+
 async function repositoryFunctionError(error: Error, fallbackCode: string): Promise<never> {
   let code = fallbackCode; let message = error.message;
   const context = (error as Error & { context?: unknown }).context;
@@ -28,7 +37,7 @@ export class SupabaseRepository implements LeadCallRepository {
 
   async getSession(): Promise<{ actor: import('../shared/types').Actor | null }> {
     const { data, error } = await this.client.auth.getUser();
-    if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
+    if (error) throw new RepositoryError(error.message, authErrorCode(error));
     if (!data.user) return { actor: null };
     const result = await this.invokeTeam<{ actor: Actor | null }>('get-session', {});
     return { actor: result.actor };
@@ -40,7 +49,7 @@ export class SupabaseRepository implements LeadCallRepository {
   }
 
   async signOut(): Promise<void> {
-    const { error } = await this.client.auth.signOut();
+    const { error } = await this.client.auth.signOut({ scope: 'local' });
     if (error) throw new RepositoryError(error.message, 'AUTH_ERROR');
   }
 

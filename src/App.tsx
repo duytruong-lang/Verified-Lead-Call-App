@@ -47,6 +47,7 @@ export function App() {
   const [teamError, setTeamError] = useState('');
   const [teamBusy, setTeamBusy] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
   const [sessionAccessUnknown, setSessionAccessUnknown] = useState(false);
   const sessionAccessUnknownRef = useRef(sessionAccessUnknown);
   sessionAccessUnknownRef.current = sessionAccessUnknown;
@@ -148,11 +149,15 @@ export function App() {
     const callback = new URL(window.location.href);
     if (callback.pathname !== '/auth/confirm') return;
     setAuthFlow('confirm');
+    sessionCheckIdRef.current += 1;
+    accessEpochRef.current += 1;
+    actorRef.current = null; setActor(null);
     const tokenHash = callback.searchParams.get('token_hash');
     const type = callback.searchParams.get('type');
     window.history.replaceState({}, '', '/');
     if (!repo || !tokenHash || (type !== 'invite' && type !== 'recovery')) {
       setAuthError('Liên kết không hợp lệ hoặc đã hết hạn. Liên hệ quản trị viên để nhận liên kết mới.');
+      setAuthFlow('sign-in'); setAuthLoading(false);
       return;
     }
     setBusy(true);
@@ -160,8 +165,11 @@ export function App() {
       window.history.replaceState({}, '', '/auth/setup');
       setAuthFlow('setup'); setSetupReady(true); setAuthError('');
     }).catch((cause) => {
-      setAuthError(`${errorText(cause)} Liên hệ quản trị viên để nhận liên kết mới.`);
-      window.history.replaceState({}, '', '/'); setAuthFlow('sign-in');
+      void repo.signOut().catch(() => undefined).finally(() => {
+        actorRef.current = null; setActor(null); setSetupReady(false);
+        setAuthError(`${errorText(cause)} Liên hệ quản trị viên để nhận liên kết mới.`);
+        window.history.replaceState({}, '', '/'); setAuthFlow('sign-in');
+      });
     }).finally(() => setBusy(false));
   }, [repo]);
   // Lead selection is intentionally retained while the queue refreshes.
@@ -212,23 +220,37 @@ export function App() {
   async function surfaceRepositoryError(cause: unknown) {
     setError(errorText(cause));
     if (!repo || !(cause instanceof RepositoryError) || !['UNAUTHENTICATED', 'AUTH_REQUIRED', 'AUTH_ERROR', 'FORBIDDEN', 'ACCESS_DENIED', 'MEMBER_DISABLED', 'MEMBER_INACTIVE', 'ROLE_REQUIRED', 'PERMISSION_DENIED'].includes(cause.code)) return;
+    const checkId = ++sessionCheckIdRef.current;
     const epoch = accessEpochRef.current;
     const previous = actorRef.current;
     try {
       const { actor: current } = await repo.getSession();
-      if (epoch !== accessEpochRef.current) return;
+      if (checkId !== sessionCheckIdRef.current || epoch !== accessEpochRef.current) return;
       if (!current || current.status !== 'active') {
-        await resetForSessionChange(); actorRef.current = null; setActor(null);
+        await resetForSessionChange();
+        if (checkId !== sessionCheckIdRef.current) return;
+        actorRef.current = null; setActor(null);
         setAuthError(current?.status === 'disabled' ? 'Tài khoản đã bị vô hiệu hóa. Liên hệ quản trị viên để được hỗ trợ.' : 'Phiên đăng nhập không còn quyền truy cập. Vui lòng đăng nhập lại.');
       } else {
         const changed = previous && (previous.id !== current.id || previous.memberId !== current.memberId || previous.role !== current.role || previous.status !== current.status);
         if (changed) await resetForSessionChange();
-        if (epoch !== accessEpochRef.current && !changed) return;
+        if (checkId !== sessionCheckIdRef.current) return;
         actorRef.current = current; setActor(current); sessionAccessUnknownRef.current = false; setSessionAccessUnknown(false);
       }
-    } catch {
-      if (epoch !== accessEpochRef.current) return;
-      await resetForSessionChange(); actorRef.current = null; setActor(null); setAuthError('Phiên đăng nhập không còn quyền truy cập. Vui lòng đăng nhập lại.');
+    } catch (cause) {
+      if (checkId !== sessionCheckIdRef.current || epoch !== accessEpochRef.current) return;
+      if (!isAccessError(cause)) {
+        accessEpochRef.current += 1;
+        sessionAccessUnknownRef.current = true; setSessionAccessUnknown(true);
+        pendingUploadRef.current?.abortController?.abort();
+        if (recordingRef.current) stopRecording();
+        setError('Không thể xác minh lại quyền do dịch vụ tạm thời gián đoạn. Thao tác đã tạm dừng; dữ liệu chưa lưu được giữ lại.');
+        return;
+      }
+      accessEpochRef.current += 1;
+      await resetForSessionChange();
+      if (checkId !== sessionCheckIdRef.current) return;
+      actorRef.current = null; setActor(null); setAuthError('Phiên đăng nhập không còn quyền truy cập. Vui lòng đăng nhập lại.');
     }
   }
   surfaceRepositoryErrorRef.current = surfaceRepositoryError;
@@ -296,7 +318,7 @@ export function App() {
   async function acceptClip(blob: Blob, name: string) { invalidateAudioIntent(); const version = clipVersionRef.current; setClip(null); setClipName(''); setClipDuration(0); try { const duration = await inspectAudio(blob); if (version !== clipVersionRef.current) return; setClip(blob); setClipName(name); setClipDuration(duration); setError(''); setMessage('Audio hợp lệ và đang được giữ trên trang này cho đến khi lưu.'); } catch (e) { if (version === clipVersionRef.current) setError(errorText(e)); } }
   async function selectFile(event: React.ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (file) await acceptClip(file, file.name); event.target.value = ''; }
   async function uploadClip(): Promise<Recording | undefined> {
-    if (!canMutate || !actor) throw new Error('Quyền ghi nhận đã thay đổi. Hãy đăng nhập lại để tiếp tục.');
+    if (!canWrite || !actor) throw new Error('Quyền ghi nhận đã thay đổi. Hãy đăng nhập lại để tiếp tục.');
     const epoch = accessEpochRef.current; const actorId = actor.id;
     const assertCurrent = () => { if (!hasCurrentWriteAccess(epoch, actorId)) throw new Error('Quyền truy cập đã thay đổi. Hãy thử lại sau khi đăng nhập.'); };
     if (!clip || !lead || !claimId || !repo) return readyRecordingRef.current ?? undefined;
@@ -350,11 +372,22 @@ export function App() {
       completedLead = lead.id; setClaimId(null); resetComposer(); setShareUrl(savedShareUrl); setMessage(request.payload.verified ? 'Đã lưu kết quả và bàn giao bản ghi.' : 'Đã lưu kết quả. Sheet sẽ đồng bộ nền.');
     } catch (e) { if (request.stage === 'committing') setSaveUncertain(true); await surfaceRepositoryError(e); } finally { setBusy(false); }
     if (completedLead) {
-      try { await advanceAfterSave(completedLead); }
-      catch { setMessage('Đã lưu kết quả. Không thể tải lead tiếp theo lúc này; dữ liệu đã được ghi nhận.'); }
+      try { await advanceAfterSave(completedLead, epoch, actorId); }
+      catch { if (hasCurrentWriteAccess(epoch, actorId)) setMessage('Đã lưu kết quả. Không thể tải lead tiếp theo lúc này; dữ liệu đã được ghi nhận.'); }
     }
   }
-  async function advanceAfterSave(completedLeadId: UUID) { if (!repo) return; const items = await repo.listLeads(queue); setLeads(items); const next = items.find((item) => item.id !== completedLeadId); if (next) { setLead(await repo.getLead(next.id)); setAssessment(next.queue === 'finished' ? (await repo.getLead(next.id)).evaluation : null); } else { setLead(null); setAssessment(null); } }
+  async function advanceAfterSave(completedLeadId: UUID, epoch: number, actorId: UUID) {
+    if (!repo) return;
+    const items = await repo.listLeads(queue);
+    if (!hasCurrentWriteAccess(epoch, actorId)) return;
+    setLeads(items);
+    const next = items.find((item) => item.id !== completedLeadId);
+    if (next) {
+      const details = await repo.getLead(next.id);
+      if (!hasCurrentWriteAccess(epoch, actorId)) return;
+      setLead(details); setAssessment(details.evaluation);
+    } else { setLead(null); setAssessment(null); }
+  }
   async function assess(result: 'verified' | 'unverified', recordingId?: UUID) {
     if (!repo || !lead || !canMutate) return;
     const epoch = accessEpochRef.current; const actorId = actor?.id; if (!actorId) return;
@@ -368,27 +401,27 @@ export function App() {
   async function authSubmit(nextEmail: string, nextPassword: string) {
     if (!repo) return;
     const epoch = accessEpochRef.current;
-    setBusy(true); setAuthError('');
+    setBusy(true); setAuthError(''); setAuthSuccess('');
     try {
       await repo.signIn(nextEmail, nextPassword);
       const session = await repo.getSession();
       if (epoch !== accessEpochRef.current) return;
       if (session.actor?.status !== 'active') throw new Error('Tài khoản chưa được kích hoạt. Liên hệ quản trị viên.');
       actorRef.current = session.actor; setActor(session.actor); setAuthLoading(false);
-    } catch (cause) { setAuthError(errorText(cause)); throw cause; }
+    } catch (cause) { const message = signInErrorText(cause); setAuthError(message); throw new Error(message); }
     finally { setBusy(false); }
   }
   async function completeOnboarding(nextPassword: string) {
     if (!repo) return;
     if (!setupReady) throw new Error('Liên kết thiết lập đã hết hạn. Hãy quay lại đăng nhập và yêu cầu liên kết mới.');
-    const epoch = accessEpochRef.current;
-    setBusy(true); setAuthError('');
+    setBusy(true); setAuthError(''); setAuthSuccess('');
     try {
       await repo.completeOnboarding(nextPassword);
-      const session = await repo.getSession();
-      if (epoch !== accessEpochRef.current) return;
-      if (session.actor?.status !== 'active') throw new Error('Tài khoản chưa được kích hoạt. Liên hệ quản trị viên.');
-      actorRef.current = session.actor; setActor(session.actor); setAuthFlow('sign-in'); setSetupReady(false); window.history.replaceState({}, '', '/');
+      try { await repo.signOut(); } catch { /* server-side password update already succeeded; the local session may have been revoked */ }
+      sessionCheckIdRef.current += 1;
+      await resetForSessionChange();
+      actorRef.current = null; setActor(null); setSessionAccessUnknown(false); sessionAccessUnknownRef.current = false;
+      setAuthFlow('sign-in'); setSetupReady(false); setAuthSuccess('Mật khẩu đã được cập nhật. Đăng nhập bằng mật khẩu mới để tiếp tục.'); window.history.replaceState({}, '', '/');
     } catch (cause) { setAuthError(errorText(cause)); throw cause; }
     finally { setBusy(false); }
   }
@@ -408,7 +441,13 @@ export function App() {
     const epoch = accessEpochRef.current; const actorId = actor.id;
     const op = `team-invite:${email.trim().toLowerCase()}:${role}`;
     try { const link = await repo.inviteMember({ email: email.trim().toLowerCase(), role, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Hãy kiểm tra danh sách thành viên trước khi thử lại.'); clearKey(op); void repo.listMembers().then((members) => { if (epoch === accessEpochRef.current && actorRef.current?.id === actorId && actorRef.current.role === 'admin') setTeamMembers(members); }).catch((cause) => { if (epoch === accessEpochRef.current) setTeamError(`Đã tạo liên kết mời. Không tải lại được danh sách: ${errorText(cause)}`); }); return link; }
-    catch (cause) { setTeamError(errorText(cause)); throw cause; }
+    catch (cause) {
+      if (cause instanceof RepositoryError && ['LINK_EXPIRED', 'LINK_REPLACED'].includes(cause.code)) {
+        clearKey(op);
+        void repo.listMembers().then((members) => { if (epoch === accessEpochRef.current && actorRef.current?.id === actorId && actorRef.current.role === 'admin') setTeamMembers(members); }).catch(() => undefined);
+      }
+      setTeamError(errorText(cause)); throw cause;
+    }
   }
   async function changeMemberRole(memberId: UUID, role: MemberRole): Promise<TeamMember> {
     if (!repo || actor?.role !== 'admin') throw new Error('Chỉ quản trị viên mới được cập nhật quyền.');
@@ -433,7 +472,10 @@ export function App() {
     const epoch = accessEpochRef.current; const actorId = actor.id;
     const op = `team-link:${memberId}:${kind}`;
     try { const link = await repo.issueMemberLink({ memberId, kind, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Hãy thử lại sau khi xác nhận thành viên.'); clearKey(op); return link; }
-    catch (cause) { setTeamError(errorText(cause)); throw cause; }
+    catch (cause) {
+      if (cause instanceof RepositoryError && ['LINK_EXPIRED', 'LINK_REPLACED'].includes(cause.code)) clearKey(op);
+      setTeamError(errorText(cause)); throw cause;
+    }
   }
   async function selectLead(item: LeadSummary) { await openLead(item); setMobileView('detail'); }
 
@@ -444,7 +486,7 @@ export function App() {
   if (authLoading) return <main className="auth-screen"><section className="auth-card auth-loading" role="status">Đang kiểm tra phiên đăng nhập…</section></main>;
   if (authFlow === 'confirm') return <main className="auth-screen"><section className="auth-card auth-loading" role="status">Đang xác nhận liên kết bảo mật…</section></main>;
   if (authFlow === 'setup' || pathname === '/auth/setup') return setupReady ? <AuthCompletion busy={busy} error={authError} onComplete={completeOnboarding} /> : <main className="auth-screen"><section className="auth-card auth-card-clean"><span className="brand-symbol" aria-hidden="true">✳</span><h1>Liên kết đã hết hạn</h1><p className="auth-intro">Bạn cần một liên kết mời hoặc khôi phục mật khẩu còn hiệu lực. Liên hệ quản trị viên để nhận liên kết mới.</p><button className="primary auth-submit" onClick={() => { setAuthFlow('sign-in'); setAuthError(''); window.history.replaceState({}, '', '/'); }}>Quay lại đăng nhập</button></section></main>;
-  if (!actor || actor.status !== 'active') return <CleanMinimalSignIn demo={isDemo} busy={busy} error={authError} onSignIn={authSubmit} />;
+  if (!actor || actor.status !== 'active') return <CleanMinimalSignIn demo={isDemo} busy={busy} error={authError} success={authSuccess} onSignIn={authSubmit} />;
 
   return <main className="app-shell" data-mobile-view={mobileView}>
     <header className="app-header"><div className="brand-symbol" aria-hidden="true">✳</div><div className="brand-copy"><span className="overline">1990 AGENCY · VERIFIED CALL WORKSPACE</span><h1>Xác minh lead</h1></div><div className="header-spacer" />{isDemo && <span className="local-banner compact">DEMO · CHỈ TRÊN MÁY NÀY</span>}{actor.role === 'admin' && <button className="team-open-button" disabled={busy || recording || Boolean(clip) || Boolean(claimId)} onClick={() => void openTeam()}><Users size={18} aria-hidden="true" /> <span>Thành viên</span></button>}<button className="user-button" disabled={busy || saveUncertain} onClick={() => void logout()} aria-label="Đăng xuất"><span className="user-avatar">{actor.displayName?.slice(0, 1).toUpperCase() ?? (isDemo ? 'D' : 'N')}</span><span>{actor.displayName || actor.email || (isDemo ? 'Nhân viên demo' : 'Nhân viên')}</span><b>↗</b></button></header>
@@ -532,5 +574,13 @@ function formatSize(value: number) { return value < 1024 * 1024 ? `${Math.ceil(v
 function audioExtension(contentType: string) { const type = contentType.split(';')[0].trim().toLowerCase(); return ({ 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/aac': 'aac' } as Record<string, string>)[type] ?? 'audio'; }
 function safeLink(value: string) { try { const url = new URL(value, location.origin); return ['https:', 'http:'].includes(url.protocol) ? url.href : undefined; } catch { return undefined; } }
 function errorText(error: unknown) { return error instanceof Error ? error.message : 'Có lỗi xảy ra. Vui lòng thử lại.'; }
+function signInErrorText(error: unknown) {
+  const message = errorText(error).toLowerCase();
+  if (message.includes('invalid login credentials') || message.includes('invalid_credentials')) return 'Email hoặc mật khẩu chưa chính xác.';
+  if (message.includes('email not confirmed') || message.includes('email_not_confirmed')) return 'Tài khoản chưa được xác nhận. Liên hệ quản trị viên để được hỗ trợ.';
+  if (message.includes('too many requests') || message.includes('rate limit')) return 'Đăng nhập tạm thời bị giới hạn. Vui lòng đợi một chút rồi thử lại.';
+  if (message.includes('fetch failed') || message.includes('network') || message.includes('failed to fetch')) return 'Không thể kết nối để đăng nhập. Kiểm tra mạng rồi thử lại.';
+  return 'Không thể đăng nhập. Kiểm tra email và mật khẩu rồi thử lại.';
+}
 function sameActor(left: Actor | null, right: Actor | null) { return left?.id === right?.id && left?.memberId === right?.memberId && left?.role === right?.role && left?.status === right?.status; }
 function isAccessError(error: unknown) { return error instanceof RepositoryError && ['UNAUTHENTICATED', 'AUTH_REQUIRED', 'AUTH_ERROR', 'FORBIDDEN', 'ACCESS_DENIED', 'MEMBER_DISABLED', 'MEMBER_INACTIVE', 'ROLE_REQUIRED', 'PERMISSION_DENIED'].includes(error.code); }
