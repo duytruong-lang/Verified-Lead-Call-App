@@ -150,6 +150,9 @@ const mappingId = randomUUID();
 createdMappingIds.add(mappingId); saveManifest();
 const savedMapping = await service.from('sheet_mappings').insert({ id: mappingId, spreadsheet_id: `synthetic-sheet-${tag}`, tab_id: 1, tab_title: 'Leads', header_row: 1, schema_fingerprint: 'fingerprint-v1', fields: [{ role: 'phone', column: { metadataId: 'synthetic-1' } }], updated_by: users.admin.id }).select('id').single();
 if (savedMapping.error) throw savedMapping.error;
+const directMappingMutation = await admin.from('sheet_mappings').update({ tab_title: 'Browser bypass attempt' }).eq('id', mappingId).select('id');
+const unchangedMapping = await service.from('sheet_mappings').select('tab_title').eq('id', mappingId).single();
+assert(Boolean(directMappingMutation.error) && !unchangedMapping.error && unchangedMapping.data.tab_title === 'Leads', 'authenticated Admin cannot bypass the guarded Sheet mapping RPC with direct table DML');
 const initialCursor = await service.rpc('sheets_get_import_cursor', { mapping_id: mappingId });
 assert(!initialCursor.error && initialCursor.data.cursor === null, 'new Sheet mapping starts with no import cursor');
 const advancedCursor = await service.rpc('sheets_advance_import_cursor', { mapping_id: mappingId, expected_cursor: null, next_cursor: 'synthetic-cursor-1' });
@@ -496,6 +499,11 @@ const concurrentLastAdmin = await Promise.all([
 assert(concurrentLastAdmin.filter((response) => !response.error).length === 1, 'concurrent cross-admin disables preserve one active administrator');
 const remainingAdmins = await service.from('team_members').select('id,auth_user_id').eq('role', 'admin').eq('status', 'active');
 assert(!remainingAdmins.error && remainingAdmins.data.length === baselineActiveAdminCount + 2 && remainingAdmins.data.some((member) => member.auth_user_id === adminKeeperId), 'last-admin invariant holds after concurrent requests and the named E2E admin stays active');
+const activeAdminIds = new Set(remainingAdmins.data.map((member) => member.auth_user_id));
+const disabledAdminClient = activeAdminIds.has(users.admin.id) ? adminB : admin;
+const disabledMappingWrite = await disabledAdminClient.rpc('sheets_save_mapping', { mapping: { spreadsheetId: `synthetic-sheet-${tag}`, tabId: 1, tabTitle: 'Disabled admin bypass attempt', headerRow: 1, schemaFingerprint: 'fingerprint-disabled', fields: [{ role: 'phone', column: { metadataId: 'synthetic-disabled' } }], writesEnabled: false } });
+const unchangedAfterDisable = await service.from('sheet_mappings').select('tab_title,schema_fingerprint').eq('id', mappingId).single();
+assert(Boolean(disabledMappingWrite.error) && !unchangedAfterDisable.error && unchangedAfterDisable.data.tab_title === 'Leads' && unchangedAfterDisable.data.schema_fingerprint === 'fingerprint-v2', 'a disabled Admin token cannot mutate Sheet mapping through the guarded RPC');
 const keeperSession = await adminKeeper.functions.invoke('team-admin', { body: { operation: 'get-session' } });
 assert(!keeperSession.error && keeperSession.data.data.actor.status === 'active', 'named E2E admin remains active after concurrent admin mutations');
 
