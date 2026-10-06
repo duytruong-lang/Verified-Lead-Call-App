@@ -2,34 +2,42 @@
 
 ## Objective and authorization
 
-The user approved the completed local UI/Auth/access pilot, then requested an official 1990 website logo/Montserrat update, removal of the idle-recorder sentence, a full GitHub handoff to `trieumanh0405`, and verified private backup followed by local Supabase cleanup. The recipient will provision their own Supabase account/project/secrets. No cloud project or real Google Sheet operation is authorized in this task.
+The user approved the final local UI/Auth/access pilot, then requested 1990 Agency branding, removal of the idle-recorder sentence, a GitHub handoff to `trieumanh0405`, and a verified private backup followed by local Supabase cleanup. The recipient will own and configure their own Supabase project and secrets. No cloud deployment or real Google Sheet operation is authorized by this handoff.
 
-GPT-6 Luna subagents implement and perform local operations. GPT-6.1 Sol independently reviews and performs final acceptance, superseding Astra for this handoff. Coordinator owns integration, shared contracts/manifests/migrations and evidence. No backend contract or schema change is required.
+GPT-6 Luna implements and performs the approved local operations. GPT-6.1 Sol independently reviews, verifies the backup/restore before any cleanup, and accepts the handoff. The coordinator owns shared contracts, manifests, migrations, integration, and evidence. No backend API or schema change was made for the handoff.
 
-## Source and Git
+## Source and GitHub status
 
-Use the durable clean checkout `.supabase/integration` for Git; the original synchronized checkout has historical Git reads that can stall. Preserve the original `.git`, index and existing changes. Source was previously persisted with reversible backups under `.supabase/resume-backup-20261006-113916`. Never delete `.supabase` wholesale: it holds private configuration, the clean checkout, worktrees and recovery archives.
+- PR #7 merged the application handoff to `main` at publication SHA `8b9a538818e97f708b1e240a6612c1e1d72999e7`. This is the application release SHA; a later documentation-only PR can advance `main`.
+- Main CI run `37423215470` succeeded.
+- Sol accepted the integrated tree at `4bb2454`; its tree matches the merged `main` commit.
+- A fresh remote clone completed `npm ci` and `npm run build` successfully.
+- The merged source includes the official 1990 Agency logo, self-hosted Montserrat and its OFL license notice, the recorder copy change, and the recipient-owned Supabase handoff guide.
 
-Integration branch `codex/pilot-ui-access`, PR #7: https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7. Base accepted application is `0ad0330`; official branding/UI and cloud handoff documentation are integrated at `155e317`. The final head must pass Sol review and CI before merge; confirm actual remote state when resuming.
+Preserve the original synchronized checkout and its Git history. The clean repository worktree `.supabase/integration` is the reliable checkout for Git operations. Do not delete `.supabase` wholesale: it contains private runtime files, worktrees, the clean checkout, and backup material.
 
-## Verification and private runtime
+## Verification evidence and boundary
 
-The branding build passed typecheck, lint, 48 Vitest tests, build and all 17 demo Playwright tests. Responsive logo/header controls and font loading passed at 320/375/414/768px and desktop; actual local admin sign-in/logout, queue access, official logo and Montserrat loading passed without changing a lead. Existing backend acceptance remains 117 local assertions, four actual Supabase browser flows, five frozen Deno checks and four helper tests; these historical checks do not certify a cloud deployment.
+The original local acceptance remains documented in [PILOT-LOCAL-QC.md](../docs/PILOT-LOCAL-QC.md). For this handoff, the bootstrap and smoke-lead SQL were tested against an isolated PostgreSQL database with the 11 repository migrations and scratch Auth/Storage shims. The bootstrap/seed behavior matrix passed, including seed concurrency, preservation of existing lead state, and ID/tag collision rejection. This is isolated SQL evidence, not a Supabase cloud deployment or production integration.
 
-Before retirement the local project is `verified-lead-call-local` in Colima `default`. Preserve its database, Storage and encryption keys until a full private backup and isolated restore have passed Sol verification. The last planning inventory had 10 synthetic leads, 61 Auth identities and no recordings/Storage objects; recount after freezing writes rather than assuming those counts. The populated pilot must not be reset or run through the global fixture harness.
+The cloud runbook is [HANDOFF-TRIEUMANH0405.md](../docs/HANDOFF-TRIEUMANH0405.md). It requires a fresh project owned by the recipient, new encryption secrets, disabled public signup, and explicit manual smoke tests. No real cloud project, live Sheet, Sheets Cron, Cloudflare Pages deployment, or physical two-way phone recording has been verified.
 
-Ignored `.supabase/functions.env`, `.supabase/local-admin-credentials.json`, `.supabase/backend-test-users.json`, `.env.supabase.local` and `.env.supabase.e2e` contain local-only secrets/configuration. Never print, commit or send them to the recipient. Backup/restore reports belong under ignored `.supabase/archives/`; procedures/evidence may also be under `.supabase/ops/`.
+## Local project and private data
+
+The local project was `verified-lead-call-local` in Colima `default`. Writes were frozen before backup. The pre-retirement inventory was 10 synthetic leads, one saved contact attempt, zero recordings, zero Storage objects, and 11 migrations. The self-contained private archive `.supabase/archives/20261006T132547+0700` now has 27 checksummed files, including `metadata/cleanup-result.txt`; hash and file-permission checks passed. Two cold-restore clones passed data, Auth/Admin, hashes, keys, and Storage checks, and Sol granted the formal `BACKUP_RESTORE_PASS` before deletion. Operations then confirmed Colima held only this project’s resources and the two restore clones, removed their containers/volumes/network, and deleted the `default` VM/data. Sol independently passed the final cleanup review, confirming VM absence, four stopped ports, and preservation of source/Git/configuration/archive.
+
+Ignored files such as `.supabase/functions.env`, `.supabase/local-admin-credentials.json`, `.supabase/backend-test-users.json`, `.env.supabase.local`, and `.env.supabase.e2e` contain local-only credentials/configuration. Never print, commit, or give them to the recipient. Backup archives and restore evidence stay private under ignored `.supabase/` paths.
 
 ## Bounded next action
 
-Verify the isolated documentation SQL checks and Sol review, publish through PR with successful CI, then complete the approved private backup/restore and scoped local cleanup.
+Scoped cleanup and Sol’s final independent check are complete. No Colima profiles or VMs remain, Docker is unavailable, and ports 5173, 54321, 54322, and 54323 are stopped. The source, original `.git`, `.supabase/integration`, and private archive remain. At the cleanup measurement snapshot, available host space increased from 14,192,832 KiB to 20,357,580 KiB, recovering 6,164,748 KiB (about 5.88 GiB / 6.31 GB); available disk space can change as other processes run. The retained archive occupies 1,134,016 KiB (about 1.08 GiB). Final backup/restore and retirement acceptance passed.
 
 ## Recipient handoff
 
-Start with `docs/HANDOFF-TRIEUMANH0405.md`; asset provenance is in `docs/BRAND-ASSETS.md`. GitHub currently has a pending write invitation for the recipient; inspect its state before making any access claim. The guide uses a fresh cloud database, new secrets and guarded Admin provisioning; local credentials are not migrated. Cloudflare, real Sheet/Cron and physical two-way audio remain unverified.
+At the latest access check, the GitHub write invitation for `trieumanh0405` was still pending. They must accept it, then create their own Supabase project, first Admin identity, encryption keys, and optional Sheet pilot. Do not send them credentials or messages from this task. The guide distinguishes local evidence from cloud steps that they must run and verify.
 
 ## Risks
 
-1. Stop cleanup if backup/restore verification fails. Keep source/Git and archives outside all deletion targets.
-2. Re-inventory Colima immediately before deletion. Delete its default VM/data only if it still has no unrelated workloads.
-3. The repository is public: keep all credentials, recordings, real leads and runtime backups private.
+1. Stop if backup validation or restore fails; retain the local project.
+2. Recheck Docker/Colima resources before deletion and preserve any unrelated workload.
+3. Keep credentials, recordings, real leads, and backups out of the public repository.
