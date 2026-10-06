@@ -48,6 +48,8 @@ export function App() {
   const [teamBusy, setTeamBusy] = useState(false);
   const [authError, setAuthError] = useState('');
   const [sessionAccessUnknown, setSessionAccessUnknown] = useState(false);
+  const sessionAccessUnknownRef = useRef(sessionAccessUnknown);
+  sessionAccessUnknownRef.current = sessionAccessUnknown;
   const [mobileView, setMobileView] = useState<'queue' | 'detail'>('queue');
   const mediaRef = useRef<MediaRecorder | null>(null); const chunksRef = useRef<BlobPart[]>([]); const streamRef = useRef<MediaStream | null>(null); const timerRef = useRef<number | null>(null); const previewRef = useRef<HTMLAudioElement>(null);
   const selectedLeadRef = useRef<UUID | null>(null); const recordingLeadRef = useRef<UUID | null>(null); const discardRecordingRef = useRef(false); const recordingGenerationRef = useRef(0); const clipVersionRef = useRef(0);
@@ -75,16 +77,20 @@ export function App() {
 
   const refresh = useCallback(async (targetQueue = queue, selectedId?: UUID) => {
     if (!repo) return;
-    const items = await repo.listLeads(targetQueue); setLeads(items);
+    const epoch = accessEpochRef.current; const actorId = actorRef.current?.id;
+    const current = () => epoch === accessEpochRef.current && (!actorId || actorRef.current?.id === actorId);
+    const items = await repo.listLeads(targetQueue); if (!current()) return; setLeads(items);
     const preferredId = selectedId ?? lead?.id;
     const target = items.find((x) => x.id === preferredId) ?? (selectedId ? undefined : items[0]);
-    if (target) { const details = await repo.getLead(target.id); setLead(details); setAssessment(details.evaluation); }
-    else if (selectedId) { const details = await repo.getLead(selectedId); setLead(details); setAssessment(details.evaluation); }
+    if (target) { const details = await repo.getLead(target.id); if (!current()) return; setLead(details); setAssessment(details.evaluation); }
+    else if (selectedId) { const details = await repo.getLead(selectedId); if (!current()) return; setLead(details); setAssessment(details.evaluation); }
     else { setLead(null); setAssessment(null); }
   }, [repo, queue, lead?.id]);
   const refreshQueueOnly = useCallback(async () => {
     if (!repo || !actor) return;
-    setLeads(await repo.listLeads(queue));
+    const epoch = accessEpochRef.current; const actorId = actor.id;
+    const items = await repo.listLeads(queue);
+    if (epoch === accessEpochRef.current && actorRef.current?.id === actorId) setLeads(items);
   }, [repo, actor, queue]);
 
   useEffect(() => {
@@ -109,6 +115,7 @@ export function App() {
           if (sessionChanged) await resetForSessionChangeRef.current();
           if (!alive || checkId !== sessionCheckIdRef.current) return;
           setSessionAccessUnknown(false);
+          sessionAccessUnknownRef.current = false;
           if (!sameActor(previous, current)) { actorRef.current = current; setActor(current); }
           else { actorRef.current = previous; }
         }
@@ -120,7 +127,10 @@ export function App() {
           if (!alive || checkId !== sessionCheckIdRef.current) return;
           actorRef.current = null; setActor(null); setAuthError(errorText(cause));
         } else {
+          accessEpochRef.current += 1;
+          sessionAccessUnknownRef.current = true;
           setSessionAccessUnknown(true);
+          pendingUploadRef.current?.abortController?.abort();
           if (recordingRef.current) stopRecording();
           setError('Không thể kiểm tra quyền truy cập. Đã tạm dừng thao tác; dữ liệu chưa lưu được giữ lại.');
         }
@@ -197,7 +207,7 @@ export function App() {
   resetForSessionChangeRef.current = resetForSessionChange;
   function hasCurrentWriteAccess(epoch: number, actorId: UUID) {
     const current = actorRef.current;
-    return epoch === accessEpochRef.current && !sessionAccessUnknown && current?.id === actorId && current.status === 'active' && (current.role === 'admin' || current.role === 'staff');
+    return epoch === accessEpochRef.current && !sessionAccessUnknownRef.current && current?.id === actorId && current.status === 'active' && (current.role === 'admin' || current.role === 'staff');
   }
   async function surfaceRepositoryError(cause: unknown) {
     setError(errorText(cause));
@@ -214,7 +224,7 @@ export function App() {
         const changed = previous && (previous.id !== current.id || previous.memberId !== current.memberId || previous.role !== current.role || previous.status !== current.status);
         if (changed) await resetForSessionChange();
         if (epoch !== accessEpochRef.current && !changed) return;
-        actorRef.current = current; setActor(current); setSessionAccessUnknown(false);
+        actorRef.current = current; setActor(current); sessionAccessUnknownRef.current = false; setSessionAccessUnknown(false);
       }
     } catch {
       if (epoch !== accessEpochRef.current) return;
@@ -233,7 +243,16 @@ export function App() {
   }
   async function openLead(item: LeadSummary) {
     if (busy || !(await abandonCurrentWork())) return;
-    const details = await repo!.getLead(item.id); setLead(details); setAssessment(details.evaluation);
+    const epoch = accessEpochRef.current; const actorId = actorRef.current?.id;
+    const details = await repo!.getLead(item.id);
+    if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId) return;
+    setLead(details); setAssessment(details.evaluation);
+  }
+  async function resumeDraft(attemptId: UUID) {
+    if (!repo || !canMutate || !actor) return;
+    const epoch = accessEpochRef.current; const actorId = actor.id;
+    try { const result = await repo.resumeAttempt(attemptId); if (!hasCurrentWriteAccess(epoch, actorId)) return; setClaimId(result.claimId); setOrdinal(result.ordinal); setMessage('Đã tiếp tục lượt gọi đang dở.'); }
+    catch (cause) { await surfaceRepositoryError(cause); }
   }
   function invalidateAudioIntent() { clipVersionRef.current += 1; pendingUploadRef.current?.abortController?.abort(); pendingUploadRef.current = null; readyRecordingRef.current = null; saveRequestRef.current = null; setShareUrl(''); setSaveUncertain(false); }
   function resetComposer() { invalidateAudioIntent(); setClip(null); setClipName(''); setClipDuration(0); setOutcome(''); setNote(''); setVerified(false); setSeconds(0); }
@@ -338,12 +357,13 @@ export function App() {
   async function advanceAfterSave(completedLeadId: UUID) { if (!repo) return; const items = await repo.listLeads(queue); setLeads(items); const next = items.find((item) => item.id !== completedLeadId); if (next) { setLead(await repo.getLead(next.id)); setAssessment(next.queue === 'finished' ? (await repo.getLead(next.id)).evaluation : null); } else { setLead(null); setAssessment(null); } }
   async function assess(result: 'verified' | 'unverified', recordingId?: UUID) {
     if (!repo || !lead || !canMutate) return;
-    try { setBusy(true); setError(''); let selectedId = recordingId; if (result === 'verified' && !selectedId) { const ready = lead.recordings.filter((r) => r.state === 'ready'); selectedId = ready.at(-1)?.id; } const shareOperation = `eval-share:${lead.id}:${lead.evaluationVersion}:${selectedId ?? ''}`; if (result === 'verified' && selectedId && !lead.shares.some((s) => s.recordingId === selectedId && s.state === 'active')) await repo.createShare(selectedId, keyFor(shareOperation)); const operation = `evaluate:${lead.id}:${lead.evaluationVersion}:${result}:${selectedId ?? ''}`; await repo.completeEvaluation({ leadId: lead.id, result, recordingId: selectedId, expectedVersion: lead.evaluationVersion, idempotencyKey: keyFor(operation) }); clearKey(operation); clearKey(shareOperation); await refresh(queue, lead.id); setMessage(result === 'verified' ? 'Đã xác minh và tạo link bàn giao.' : 'Đã lưu đánh giá chưa xác minh.'); }
+    const epoch = accessEpochRef.current; const actorId = actor?.id; if (!actorId) return;
+    try { setBusy(true); setError(''); let selectedId = recordingId; if (result === 'verified' && !selectedId) { const ready = lead.recordings.filter((r) => r.state === 'ready'); selectedId = ready.at(-1)?.id; } const shareOperation = `eval-share:${lead.id}:${lead.evaluationVersion}:${selectedId ?? ''}`; if (result === 'verified' && selectedId && !lead.shares.some((s) => s.recordingId === selectedId && s.state === 'active')) { await repo.createShare(selectedId, keyFor(shareOperation)); if (!hasCurrentWriteAccess(epoch, actorId)) return; } const operation = `evaluate:${lead.id}:${lead.evaluationVersion}:${result}:${selectedId ?? ''}`; await repo.completeEvaluation({ leadId: lead.id, result, recordingId: selectedId, expectedVersion: lead.evaluationVersion, idempotencyKey: keyFor(operation) }); if (!hasCurrentWriteAccess(epoch, actorId)) return; clearKey(operation); clearKey(shareOperation); await refresh(queue, lead.id); setMessage(result === 'verified' ? 'Đã xác minh và tạo link bàn giao.' : 'Đã lưu đánh giá chưa xác minh.'); }
     catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); }
   }
-  async function cancelDraft(claim: UUID) { if (!repo || !lead || !canMutate) return; const operation = `cancel:${claim}`; try { setBusy(true); await discardActiveRecorder(); await repo.cancelAttempt(claim, keyFor(operation)); clearKey(operation); setClaimId(null); resetComposer(); await refresh(queue, lead.id); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
-  async function replaceHandoff(recordingId: UUID) { if (!repo || !lead || !canMutate) return; const version = lead.handoff?.version ?? 0; const operation = `replace:${lead.id}:${version}:${recordingId}`; try { setBusy(true); await repo.replaceHandoff({ leadId: lead.id, recordingId, expectedVersion: version, idempotencyKey: keyFor(operation) }); clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thay bản ghi bàn giao. Link cũ vẫn gắn với bản ghi trước.'); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
-  async function revokeRecordingShare(shareId: UUID) { if (!repo || !lead || !canMutate) return; const operation = `revoke:${shareId}`; try { setBusy(true); await repo.revokeShare(shareId, keyFor(operation)); clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thu hồi link.'); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
+  async function cancelDraft(claim: UUID) { if (!repo || !lead || !canMutate) return; const epoch = accessEpochRef.current; const actorId = actor!.id; const operation = `cancel:${claim}`; try { setBusy(true); await discardActiveRecorder(); if (!hasCurrentWriteAccess(epoch, actorId)) return; await repo.cancelAttempt(claim, keyFor(operation)); if (!hasCurrentWriteAccess(epoch, actorId)) return; clearKey(operation); setClaimId(null); resetComposer(); const details = await repo.getLead(lead.id); if (!hasCurrentWriteAccess(epoch, actorId)) return; setLead(details); await refresh(queue, lead.id); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
+  async function replaceHandoff(recordingId: UUID) { if (!repo || !lead || !canMutate) return; const epoch = accessEpochRef.current; const actorId = actor!.id; const version = lead.handoff?.version ?? 0; const operation = `replace:${lead.id}:${version}:${recordingId}`; try { setBusy(true); await repo.replaceHandoff({ leadId: lead.id, recordingId, expectedVersion: version, idempotencyKey: keyFor(operation) }); if (!hasCurrentWriteAccess(epoch, actorId)) return; clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thay bản ghi bàn giao. Link cũ vẫn gắn với bản ghi trước.'); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
+  async function revokeRecordingShare(shareId: UUID) { if (!repo || !lead || !canMutate) return; const epoch = accessEpochRef.current; const actorId = actor!.id; const operation = `revoke:${shareId}`; try { setBusy(true); await repo.revokeShare(shareId, keyFor(operation)); if (!hasCurrentWriteAccess(epoch, actorId)) return; clearKey(operation); await refresh(queue, lead.id); setMessage('Đã thu hồi link.'); } catch (e) { await surfaceRepositoryError(e); } finally { setBusy(false); } }
   async function changeQueue(id: LeadQueue) { if (id === queue || busy || !(await abandonCurrentWork())) return; setQueue(id); setLead(null); setError(''); setMessage(''); }
   async function authSubmit(nextEmail: string, nextPassword: string) {
     if (!repo) return;
@@ -378,36 +398,41 @@ export function App() {
   }
   async function openTeam() {
     if (!repo || actor?.role !== 'admin' || busy || recording || clip || claimId) return;
+    const epoch = accessEpochRef.current; const actorId = actor.id;
     setTeamOpen(true); setTeamBusy(true); setTeamError('');
-    try { setTeamMembers(await repo.listMembers()); } catch (cause) { setTeamError(errorText(cause)); }
+    try { const members = await repo.listMembers(); if (epoch === accessEpochRef.current && actorRef.current?.id === actorId && actorRef.current.role === 'admin') setTeamMembers(members); } catch (cause) { if (epoch === accessEpochRef.current) setTeamError(errorText(cause)); }
     finally { setTeamBusy(false); }
   }
   async function inviteMember(email: string, role: MemberRole): Promise<MemberLink> {
     if (!repo || actor?.role !== 'admin') throw new Error('Chỉ quản trị viên mới được mời thành viên.');
+    const epoch = accessEpochRef.current; const actorId = actor.id;
     const op = `team-invite:${email.trim().toLowerCase()}:${role}`;
-    try { const link = await repo.inviteMember({ email: email.trim().toLowerCase(), role, idempotencyKey: keyFor(op) }); clearKey(op); void repo.listMembers().then(setTeamMembers).catch((cause) => setTeamError(`Đã tạo liên kết mời. Không tải lại được danh sách: ${errorText(cause)}`)); return link; }
+    try { const link = await repo.inviteMember({ email: email.trim().toLowerCase(), role, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Hãy kiểm tra danh sách thành viên trước khi thử lại.'); clearKey(op); void repo.listMembers().then((members) => { if (epoch === accessEpochRef.current && actorRef.current?.id === actorId && actorRef.current.role === 'admin') setTeamMembers(members); }).catch((cause) => { if (epoch === accessEpochRef.current) setTeamError(`Đã tạo liên kết mời. Không tải lại được danh sách: ${errorText(cause)}`); }); return link; }
     catch (cause) { setTeamError(errorText(cause)); throw cause; }
   }
   async function changeMemberRole(memberId: UUID, role: MemberRole): Promise<TeamMember> {
     if (!repo || actor?.role !== 'admin') throw new Error('Chỉ quản trị viên mới được cập nhật quyền.');
+    const epoch = accessEpochRef.current; const actorId = actor.id;
     const member = teamMembers.find((item) => item.id === memberId);
     if (!member) throw new Error('Thành viên không còn trong danh sách. Hãy tải lại danh sách.');
     const op = `team-role:${memberId}:${member.version}:${role}`;
-    try { const updated = await repo.setMemberRole({ memberId, role, expectedVersion: member.version, idempotencyKey: keyFor(op) }); clearKey(op); setTeamMembers((items) => items.map((item) => item.id === memberId ? updated : item)); return updated; }
+    try { const updated = await repo.setMemberRole({ memberId, role, expectedVersion: member.version, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Tải lại danh sách thành viên.'); clearKey(op); setTeamMembers((items) => items.map((item) => item.id === memberId ? updated : item)); return updated; }
     catch (cause) { setTeamError(errorText(cause)); throw cause; }
   }
   async function changeMemberStatus(memberId: UUID, status: 'active' | 'disabled'): Promise<TeamMember> {
     if (!repo || actor?.role !== 'admin') throw new Error('Chỉ quản trị viên mới được cập nhật trạng thái.');
+    const epoch = accessEpochRef.current; const actorId = actor.id;
     const member = teamMembers.find((item) => item.id === memberId);
     if (!member) throw new Error('Thành viên không còn trong danh sách. Hãy tải lại danh sách.');
     const op = `team-status:${memberId}:${member.version}:${status}`;
-    try { const updated = await repo.setMemberStatus({ memberId, status, expectedVersion: member.version, idempotencyKey: keyFor(op) }); clearKey(op); setTeamMembers((items) => items.map((item) => item.id === memberId ? updated : item)); return updated; }
+    try { const updated = await repo.setMemberStatus({ memberId, status, expectedVersion: member.version, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Tải lại danh sách thành viên.'); clearKey(op); setTeamMembers((items) => items.map((item) => item.id === memberId ? updated : item)); return updated; }
     catch (cause) { setTeamError(errorText(cause)); throw cause; }
   }
   async function issueMemberLink(memberId: UUID, kind: MemberLink['kind']): Promise<MemberLink> {
     if (!repo || actor?.role !== 'admin') throw new Error('Chỉ quản trị viên mới được tạo liên kết.');
+    const epoch = accessEpochRef.current; const actorId = actor.id;
     const op = `team-link:${memberId}:${kind}`;
-    try { const link = await repo.issueMemberLink({ memberId, kind, idempotencyKey: keyFor(op) }); clearKey(op); return link; }
+    try { const link = await repo.issueMemberLink({ memberId, kind, idempotencyKey: keyFor(op) }); if (epoch !== accessEpochRef.current || actorRef.current?.id !== actorId || actorRef.current.role !== 'admin') throw new Error('Quyền quản trị đã thay đổi. Hãy thử lại sau khi xác nhận thành viên.'); clearKey(op); return link; }
     catch (cause) { setTeamError(errorText(cause)); throw cause; }
   }
   async function selectLead(item: LeadSummary) { await openLead(item); setMobileView('detail'); }
@@ -442,7 +467,7 @@ export function App() {
           {expandedInfo && <div className="answer-grid"><div><small>Nguồn lead</small><b>{lead.source ?? '—'}</b></div><div><small>Ngày tạo</small><b>{lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('vi-VN') : '—'}</b></div><div><small>Email</small><b>{lead.email ?? '—'}</b></div><div><small>Ghi chú nhập</small><b>{lead.notes ?? '—'}</b></div></div>}
 
           {canWrite ? <div className="call-card">
-            <div className="call-card-top"><div><span className="overline">LƯỢT GỌI {claimId ? ordinal : Math.min(draftAttempt?.ordinal ?? lead.attemptCount + 1, MAX_ATTEMPTS)}/{MAX_ATTEMPTS}</span><h3>{claimId ? 'Đang xử lý lead' : draftAttempt ? 'Có lượt gọi đang dở' : 'Ghi nhận cuộc gọi'}</h3></div>{claimId ? <span className="live-state"><i /> Đang giữ lượt gọi</span> : draftAttempt ? <div className="draft-actions"><button className="primary" disabled={busy} onClick={() => void repo.resumeAttempt(draftAttempt.id).then((result) => { setClaimId(result.claimId); setOrdinal(result.ordinal); setMessage('Đã tiếp tục lượt gọi đang dở.'); }).catch((e) => setError(errorText(e)))}>Tiếp tục lượt {draftAttempt.ordinal}</button><button className="cancel-call" disabled={busy} onClick={() => void cancelDraft(draftAttempt.id)}>Hủy lượt dở</button></div> : lead.attemptCount >= MAX_ATTEMPTS ? <span className="muted-state">Đã đủ 5 lượt</span> : <button className="primary start-call" disabled={busy} onClick={() => void beginCall()}>Bắt đầu gọi <span>→</span></button>}</div>
+            <div className="call-card-top"><div><span className="overline">LƯỢT GỌI {claimId ? ordinal : Math.min(draftAttempt?.ordinal ?? lead.attemptCount + 1, MAX_ATTEMPTS)}/{MAX_ATTEMPTS}</span><h3>{claimId ? 'Đang xử lý lead' : draftAttempt ? 'Có lượt gọi đang dở' : 'Ghi nhận cuộc gọi'}</h3></div>{claimId ? <span className="live-state"><i /> Đang giữ lượt gọi</span> : draftAttempt ? <div className="draft-actions"><button className="primary" disabled={busy || saveUncertain} onClick={() => void resumeDraft(draftAttempt.id)}>Tiếp tục lượt {draftAttempt.ordinal}</button><button className="cancel-call" disabled={busy} onClick={() => void cancelDraft(draftAttempt.id)}>Hủy lượt dở</button></div> : lead.attemptCount >= MAX_ATTEMPTS ? <span className="muted-state">Đã đủ 5 lượt</span> : <button className="primary start-call" disabled={busy} onClick={() => void beginCall()}>Bắt đầu gọi <span>→</span></button>}</div>
             {claimId && <>
               <div className="recorder"><div className="rec-icon">{recording ? <span className="pulse" /> : '◉'}</div><div className="rec-copy"><b>{recording ? 'Đang ghi âm cuộc gọi' : clip ? 'Audio đã sẵn sàng' : 'Ghi âm qua micro máy tính'}</b><small>{recording ? 'Điện thoại để loa ngoài để thu được hai chiều.' : clip ? `${clipName} · ${formatDuration(clipDuration)} · ${formatSize(clip?.size ?? 0)}` : 'Chỉ bắt đầu khi khách hàng đồng ý ghi âm.'}</small>{clip && !recording && <audio ref={previewRef} controls src={clipPreviewUrl} />}</div><div className="rec-actions">{recording ? <><time>{formatDuration(seconds)}</time><button className="stop-button" disabled={busy || saveUncertain} onClick={stopRecording} aria-label="Dừng ghi âm">■ Dừng</button></> : <><button disabled={busy || saveUncertain} className={clip ? 'outline-button' : 'record-button'} onClick={() => void startRecording()}>{clip ? 'Ghi lại' : '● Ghi âm'}</button><label className="upload-button">Tải audio<input disabled={busy || saveUncertain} type="file" accept="audio/*,.m4a,.mp3,.wav,.webm,.ogg" onChange={(e) => void selectFile(e)} /></label>{clip && <button className="remove-audio" disabled={busy || saveUncertain} onClick={() => { invalidateAudioIntent(); setClip(null); setClipName(''); setClipDuration(0); }}>Xóa audio</button>}</>}</div></div>
               <div className="outcome-head"><b>Kết quả cuộc gọi</b><small>Chọn một kết quả để lưu lượt này</small></div><div className="outcome-grid">{outcomes.map((item) => <button key={item.id} disabled={busy || saveUncertain} className={outcome === item.id ? 'chosen' : ''} onClick={() => setOutcome(item.id)}>{outcome === item.id && <span>✓</span>}{item.label}</button>)}</div>
@@ -453,7 +478,7 @@ export function App() {
           </div> : <aside className="viewer-note" role="note"><strong>Chế độ chỉ xem</strong><span>Bạn có thể xem thông tin lead, lịch sử cuộc gọi và các link bàn giao đã có.</span></aside>}
 
           <div className="history-section"><div className="section-title small-title"><div><span className="overline">LỊCH SỬ</span><h3>Các lượt gọi & bàn giao</h3></div>{lead.syncStatus && <span className={`sync-pill ${lead.syncStatus.state === 'blocked' ? 'bad' : ''}`}>Sheet: {lead.syncStatus.state === 'succeeded' ? 'Đã đồng bộ' : lead.syncStatus.state === 'blocked' ? 'Cần xử lý' : 'Đang chờ'}</span>}</div>
-            {lead.attempts.length === 0 ? <p className="history-empty">Chưa có lượt gọi nào được lưu.</p> : <div className="history-list">{[...lead.attempts].reverse().map((attempt) => <article className="history-item" key={attempt.id}><span className={`history-mark ${attempt.state}`}>{attempt.state === 'completed' ? '✓' : '·'}</span><div className="history-copy"><b>Lượt {attempt.ordinal} · {outcomeLabel(attempt.outcome)}</b><small>{new Date(attempt.completedAt ?? attempt.startedAt).toLocaleString('vi-VN')}{attempt.note ? ` · ${attempt.note}` : ''}</small>{canWrite && attempt.state === 'draft' && <button onClick={() => { void repo.resumeAttempt(attempt.id).then((res) => { setClaimId(res.claimId); setOrdinal(res.ordinal); }); }}>Tiếp tục lượt đang dở</button>}</div></article>)}</div>}
+            {lead.attempts.length === 0 ? <p className="history-empty">Chưa có lượt gọi nào được lưu.</p> : <div className="history-list">{[...lead.attempts].reverse().map((attempt) => <article className="history-item" key={attempt.id}><span className={`history-mark ${attempt.state}`}>{attempt.state === 'completed' ? '✓' : '·'}</span><div className="history-copy"><b>Lượt {attempt.ordinal} · {outcomeLabel(attempt.outcome)}</b><small>{new Date(attempt.completedAt ?? attempt.startedAt).toLocaleString('vi-VN')}{attempt.note ? ` · ${attempt.note}` : ''}</small>{canWrite && attempt.state === 'draft' && <button disabled={busy || saveUncertain} onClick={() => void resumeDraft(attempt.id)}>Tiếp tục lượt đang dở</button>}</div></article>)}</div>}
             {lead.legacySourceMetadata && <article className="legacy-history"><div><span className="overline">KẾT QUẢ ĐÃ CÓ TRONG SHEET</span><b>{lead.legacySourceMetadata.outcome ?? 'Chưa có kết quả'}</b><small>{lead.legacySourceMetadata.evaluation ? `Đánh giá cũ: ${lead.legacySourceMetadata.evaluation === 'verified' ? 'Đã xác minh' : 'Chưa xác minh'}` : 'Chưa có đánh giá cũ'}{lead.legacySourceMetadata.evaluationAt ? ` · ${new Date(lead.legacySourceMetadata.evaluationAt).toLocaleString('vi-VN')}` : ''}</small>{lead.legacySourceMetadata.note && <small>{lead.legacySourceMetadata.note}</small>}</div>{lead.legacySourceMetadata.recordingLinks.map((url, index) => <a href={safeLink(url)} key={`${url}-${index}`} target="_blank" rel="noreferrer">Link cũ {index + 1} ↗</a>)}</article>}
             {lead.recordings.length > 0 && <div className="recording-library"><span className="overline">BẢN GHI ÂM</span>{[...lead.recordings].reverse().map((item) => { const activeShare = lead.shares.find((share) => share.recordingId === item.id && share.state === 'active'); return <article className="recording-row" key={item.id}><div><b>REC-{item.id.slice(-6).toUpperCase()}</b><small>{item.state === 'ready' ? `${formatDuration(item.durationSeconds ?? 0)} · ${new Date(item.recordedAt ?? '').toLocaleString('vi-VN')}` : `Audio ${item.state}`}</small></div><div className="recording-actions">{activeShare && <a href={activeShare.publicUrl} target="_blank" rel="noreferrer">Nghe ↗</a>}{canWrite && item.state === 'ready' && lead.handoff?.recordingId !== item.id && <button disabled={busy} onClick={() => void replaceHandoff(item.id)}>Dùng làm bản bàn giao…</button>}{canWrite && activeShare && (actor.role === 'admin' || item.createdBy === actor.id) && <button className="revoke-button" disabled={busy} onClick={() => { if (window.confirm('Thu hồi link này? Người dùng sẽ không thể mở link để lấy URL phát mới.')) void revokeRecordingShare(activeShare.id); }}>Thu hồi link</button>}</div></article>; })}</div>}
             <div className="assessment"><div><b>Đánh giá cuối</b><small>{assessment ? `Trạng thái hiện tại: ${assessment === 'verified' ? 'Đã xác minh' : 'Chưa xác minh'}` : 'Được phép đánh giá sau tối đa 5 lượt.'}</small></div>{canWrite && <div className="assessment-actions"><button className={assessment === 'verified' ? 'assess-active' : ''} disabled={busy || saveUncertain} onClick={() => void assess('verified')}>Đã xác minh</button><button className={assessment === 'unverified' ? 'assess-active' : ''} disabled={busy || saveUncertain} onClick={() => void assess('unverified')}>Chưa xác minh</button></div>}</div>
