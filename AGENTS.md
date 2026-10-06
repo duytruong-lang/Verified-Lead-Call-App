@@ -1,5 +1,9 @@
 # Agent roles and project rules
 
+## Cross-session continuity
+
+Before resuming, read `.agents/HANDOFF.md`, `.agents/PROJECT.md`, `.agents/PLAN.md`, and `.agents/DECISIONS.md`; validate them against current Git/code. `docs/HANDOFF.md` records product acceptance, while `.agents/HANDOFF.md` records session state and the bounded next action. Never treat historical local/mock evidence as proof of live cloud/Sheet operation.
+
 ## Product scope
 
 Build a lead verification call workspace. Staff choose a lead imported from one configured Google Sheet, call using a physical phone on speaker, record PC microphone audio, save one of the defined outcomes, and hand off a playable recording link when verified. The app database is the business record; Sheets is an asynchronous input/output surface.

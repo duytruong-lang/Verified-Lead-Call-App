@@ -40,6 +40,11 @@ npm run test:e2e
 
 ## Tài liệu vận hành
 
+- [Bắt đầu session mới / bàn giao cho agent](.agents/HANDOFF.md)
+- [Project knowledge và bản đồ code](.agents/PROJECT.md)
+- [Quyết định đã chốt](.agents/DECISIONS.md)
+- [Trạng thái kế hoạch hiện tại](.agents/PLAN.md)
+
 - [Hướng dẫn vận hành](docs/OPERATIONS.md)
 - [Hướng dẫn frontend](docs/FRONTEND.md)
 - [API và shared contracts](docs/API.md)
