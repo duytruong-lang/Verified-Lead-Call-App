@@ -179,8 +179,8 @@ test('sign-in, team dialog, and workspace remain usable at approved viewport wid
       await expect(page.locator('.app-shell')).toHaveAttribute('data-mobile-view', 'detail');
       await expect(page.getByRole('button', { name: 'Quay lại hàng đợi' })).toBeVisible();
       await expect(page.locator('.history-empty')).toBeVisible();
-      const mobileBounds = await page.evaluate(() => ({ footer: document.querySelector('.status-footer')!.getBoundingClientRect(), workbench: document.querySelector('.workbench')!.getBoundingClientRect() }));
-      expect(mobileBounds.footer.top).toBeGreaterThanOrEqual(mobileBounds.workbench.bottom);
+      const mobileBounds = await page.evaluate(() => ({ footer: document.querySelector('.status-footer')!.getBoundingClientRect(), history: document.querySelector('.history-section')!.getBoundingClientRect() }));
+      expect(mobileBounds.footer.top).toBeGreaterThanOrEqual(mobileBounds.history.bottom);
       expect(Number.parseFloat(await page.locator('.history-empty').evaluate((element) => getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(14);
     } else {
       await expect(page.locator('.queue-column')).toBeVisible();
