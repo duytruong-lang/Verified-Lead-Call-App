@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, isAuthSessionMissingError, type SupabaseClient } from '@supabase/supabase-js';
 import type { LeadCallRepository } from '../shared/repository';
 import { RepositoryError } from '../shared/repository';
 import type { Actor, LeadDetails, LeadQueue, LeadSummary, MemberLink, MemberRole, PublicRecordingInfo, SaveOutcomeInput, SaveOutcomeResult, SheetMapping, SheetMappingValidation, TeamMember, UUID } from '../shared/types';
@@ -37,6 +37,7 @@ export class SupabaseRepository implements LeadCallRepository {
 
   async getSession(): Promise<{ actor: import('../shared/types').Actor | null }> {
     const { data, error } = await this.client.auth.getUser();
+    if (error && isAuthSessionMissingError(error)) return { actor: null };
     if (error) throw new RepositoryError(error.message, authErrorCode(error));
     if (!data.user) return { actor: null };
     const result = await this.invokeTeam<{ actor: Actor | null }>('get-session', {});
