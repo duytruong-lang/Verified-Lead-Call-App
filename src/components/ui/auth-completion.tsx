@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, KeyRound, LockKeyhole, RotateCcw } from 'lucide-react';
+import { BrandLogo } from './brand-logo';
 
 export function AuthCompletion({ busy = false, error, onComplete }: { busy?: boolean; error?: string; onComplete: (password: string) => Promise<void> }) {
   const [password, setPassword] = useState('');
@@ -18,7 +19,7 @@ export function AuthCompletion({ busy = false, error, onComplete }: { busy?: boo
   }
 
   return <main className="auth-screen"><section className="auth-card auth-card-clean" aria-labelledby="auth-completion-title">
-    <div className="auth-brand-lockup"><span className="brand-symbol" aria-hidden="true">✳</span><span>1990 <small>AGENCY</small></span></div>
+    <div className="auth-brand-lockup"><BrandLogo className="brand-logo-auth" /></div>
     <p className="overline">HOÀN TẤT TÀI KHOẢN</p><h1 id="auth-completion-title">Tạo mật khẩu</h1><p className="auth-intro">Chọn mật khẩu mới để mở workspace.</p>
     <form className="auth-form" onSubmit={(event) => void submit(event)}>
       <label htmlFor="new-password">Mật khẩu mới</label><div className="auth-input-wrap"><KeyRound size={18} aria-hidden="true" /><input autoComplete="new-password" id="new-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={12} required /></div>

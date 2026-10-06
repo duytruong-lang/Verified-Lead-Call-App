@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, RotateCcw } from 'lucide-react';
+import { BrandLogo } from './brand-logo';
 
 type CleanMinimalSignInProps = {
   demo?: boolean;
@@ -32,7 +33,7 @@ export function CleanMinimalSignIn({ demo = false, busy = false, error, success,
   return (
     <main className="auth-screen">
       <section className="auth-card auth-card-clean" aria-labelledby="sign-in-title">
-        <div className="auth-brand-lockup"><span className="brand-symbol" aria-hidden="true">✳</span><span>1990 <small>AGENCY</small></span></div>
+        <div className="auth-brand-lockup"><BrandLogo className="brand-logo-auth" /></div>
         <p className="overline">VERIFIED CALL WORKSPACE</p>
         <h1 id="sign-in-title">Đăng nhập</h1>
         <p className="auth-intro">Dùng tài khoản công việc để mở hàng đợi xác minh lead.</p>

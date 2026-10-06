@@ -159,11 +159,17 @@ test('invalid auth callback removes the one-time token from the address bar and 
 test('sign-in, team dialog, and workspace remain usable at approved viewport widths', async ({ page }) => {
   await page.getByRole('button', { name: 'Đăng xuất' }).click();
   await expect(page.getByRole('heading', { name: 'Đăng nhập' })).toBeVisible();
+  const signInLogo = page.getByRole('img', { name: '1990 Agency' });
+  await expect(signInLogo).toBeVisible();
+  expect(await signInLogo.evaluate((image) => image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)).toBe(true);
   await page.screenshot({ path: '/tmp/verified-call-sign-in.png', fullPage: true });
   await page.getByLabel('Email công việc').fill('demo@example.test');
   await page.getByRole('textbox', { name: 'Mật khẩu' }).fill('synthetic-password');
   await page.getByRole('button', { name: 'Đăng nhập' }).click();
   await expect(page.getByRole('heading', { name: 'Xác minh lead' })).toBeVisible();
+  const workspaceLogo = page.getByRole('img', { name: '1990 Agency' });
+  await expect(workspaceLogo).toBeVisible();
+  expect(await workspaceLogo.evaluate((image) => image.complete && image.naturalWidth / image.naturalHeight > 3.9)).toBe(true);
   await page.getByRole('button', { name: 'Thành viên' }).click();
   await expect(page.getByRole('dialog', { name: 'Thành viên workspace' })).toBeVisible();
   await page.screenshot({ path: '/tmp/verified-call-team.png', fullPage: true });
@@ -189,6 +195,9 @@ test('sign-in, team dialog, and workspace remain usable at approved viewport wid
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: `/tmp/verified-call-layout-${width}.png`, fullPage: true });
   }
+  await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();
+  await expect(page.locator('.recorder')).not.toContainText('Chỉ bắt đầu khi khách hàng đồng ý ghi âm');
+  await expect(page.locator('.rec-copy small')).toHaveCount(0);
 });
 
 test('blocks the sixth saved contact attempt while keeping final evaluation available', async ({ page }) => {
