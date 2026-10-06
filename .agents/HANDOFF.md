@@ -20,7 +20,7 @@ Docker/Colima/Deno are installed. The first newly created empty VM failed with d
 
 Eleven migrations are applied, including Viewer role, transactional membership and a follow-up serializing Sheet mapping writes with Admin revocation. Edge Functions are served from the original project with ignored `.supabase/functions.env`; preserve its encryption keys. Local core services exclude Realtime, Studio, analytics and pooler to conserve resources.
 
-Astra accepted local UI/Auth/access at `a02871f`, after Sol delta QC at `c9bb1dd`; application/backend source is identical between those commits. Final evidence: typecheck/lint/build, 46 Vitest tests, 17 demo Playwright tests, 117 actual local backend assertions, five frozen Deno entrypoint checks, four Deno helper tests and four actual Supabase browser flows passed. See `docs/PILOT-LOCAL-QC.md` for exact boundaries. Actual browser tests used a dependency symlink with font allowlist warnings; the separate demo visual suite verified loaded Montserrat and responsive layouts.
+Astra accepted local UI/Auth/access at `a02871f`, after Sol delta QC at `c9bb1dd`; application/backend source is identical between those commits. Final evidence: typecheck/lint/build, 48 Vitest tests, 17 demo Playwright tests, 117 actual local backend assertions, five frozen Deno entrypoint checks, four Deno helper tests and four actual Supabase browser flows passed. See `docs/PILOT-LOCAL-QC.md` for exact boundaries. Actual browser tests used a dependency symlink with font allowlist warnings; the separate demo visual suite verified loaded Montserrat and responsive layouts.
 
 All tracked harness/browser fixtures were cleaned and their test memberships disabled, retaining Auth/profile/audit history. The requested first admin was bootstrapped locally with a random password stored in ignored `.supabase/local-admin-credentials.json` (`0600`). Ten synthetic pilot leads are present; a second seed run inserted zero and preserved all ten. Do not run the global harness on this populated pilot database.
 
@@ -28,7 +28,7 @@ All tracked harness/browser fixtures were cleaned and their test memberships dis
 
 1. Open `docs/LOCAL-PILOT.md` for operator login/start commands and `docs/PILOT-LOCAL-QC.md` for accepted scope.
 2. Keep the database and encryption keys. Resume local services without `db reset`; test recording with the operator's physical phone/microphone when ready.
-3. Source and private runtime configuration are persisted in the original project. PR #7 CI passed at `af6a464`; the final documentation-only head must also be checked before calling that head green.
+3. Source and private runtime configuration are persisted in the original project. PR #7 remains open and ready for review. CI passed at `0b5d8fa`; check the latest head after the final Auth delta/evidence commit before calling that head green.
 4. Cloud/real Sheet remain deferred. Obtain cloud capacity, staff email, service-account Sheet permissions and a physical-call operator before that separate phase.
 
 ## Private configuration and deferred work
@@ -40,3 +40,7 @@ The requested admin email is in the user conversation; do not hardcode it into f
 ## Final operator smoke — 2026-10-06
 
 After restarting Colima and the existing Supabase stack, the app runs from the original project at `http://127.0.0.1:5173`. A read-only browser smoke logged in with the provisioned admin, verified ten synthetic leads and Admin controls, waited for actual Montserrat load, then logged out. It passed without changing a lead. Private screenshots are in `.supabase/local-workspace.png` and `.supabase/local-sign-in.png`. No cloud or real Sheet operation was performed.
+
+## Final missing-session correction
+
+Luna fixed the normal anonymous-session case using the SDK predicate; invalid JWT and transient network errors retain their prior classification. Sol independently reviewed/tested it; Astra accepted integrated `0ad0330`. Foundation checks were rerun with 48 Vitest tests passing. The read-only operator smoke now explicitly checks no alert on fresh sign-in and after logout, plus admin login, ten leads and loaded Montserrat; all passed. Final screenshots supersede the earlier smoke images. Backend/real-data boundaries remain unchanged.

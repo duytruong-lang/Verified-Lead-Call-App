@@ -13,7 +13,7 @@ Email/password dùng Supabase Auth thật; admin tạo link mời/khôi phục t
 | Kiểm tra | Kết quả | Môi trường / giới hạn |
 | --- | --- | --- |
 | `npm run typecheck`, `npm run lint` | Pass | Source tích hợp |
-| `npm test` | 46/46 pass | 8 files; Vitest |
+| `npm test` | 48/48 pass | 8 files; Vitest |
 | `npm run build` | Pass | Có cảnh báo bundle JS khoảng 819 kB; chưa tối ưu code splitting |
 | Deno frozen check | 5/5 Edge entrypoints pass | Không thay lockfile khi check |
 | Deno helper tests | 4/4 pass | Sol tự chạy crypto/link helpers |
@@ -44,3 +44,9 @@ Cloud Supabase/Cloudflare, Google Sheet thật/Cron, service account và cuộc 
 ## Post-persistence operator smoke
 
 Sau khi lưu source về thư mục project gốc và mở lại Colima/Supabase mà không reset database, browser smoke đăng nhập bằng admin đã provision, xác nhận đủ 10 lead giả, nút quản lý thành viên, Montserrat thực sự tải trên bản Supabase local, rồi đăng xuất: **pass**. Không đổi dữ liệu lead. Bước này xác nhận cả runtime và font từ thư mục bàn giao, bổ sung cho cảnh báo symlink của worktree test trước đó.
+
+## Final Auth delta
+
+Bản `0ad03306b3cb21357c64d2af40fc0da50edd758d` xử lý SDK `AuthSessionMissingError` như trạng thái chưa đăng nhập, tránh báo lỗi tiếng Anh khi mở mới hoặc đăng xuất. Lỗi JWT không hợp lệ và lỗi mạng vẫn giữ phân loại riêng. Sol kiểm tra độc lập ba tests trong adapter; Astra chấp nhận delta này sau kết quả kiểm tra cuối.
+
+Typecheck, lint, 48 Vitest tests và build chạy lại đều pass. Browser smoke chỉ đọc trên app bàn giao xác nhận màn đăng nhập mới không có alert → admin đăng nhập → 10 lead giả, quyền Admin và font đã tải → đăng xuất không có alert. Ảnh sign-in được kiểm tra lại. Các bộ 17 demo browser tests, 117 backend assertions và 4 Supabase browser flows ở trên là bằng chứng tại bản nghiệm thu trước; backend không đổi, không chạy lại harness tổng thể trên database đã có lead pilot.

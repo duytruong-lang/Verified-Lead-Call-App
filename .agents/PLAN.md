@@ -9,7 +9,7 @@ User approved implementation on 2026-10-06, then explicitly selected **Supabase 
 1. Baseline: PR #6 current-head CI succeeded and PR merged as `67f06ac`.
 2. Foundation: shared contracts, shadcn aliases/config and dependencies created.
 3. Completed: Luna frontend/backend work integrated from isolated worktrees; coordinator owns contracts, manifests and migrations.
-4. Completed: Sol independent review/QC and Astra local acceptance at `a02871f`. See `docs/PILOT-LOCAL-QC.md` for final checks.
+4. Completed: Sol independent review/QC and Astra local acceptance at `a02871f`, with the final missing-session Auth delta accepted at `0ad0330`. See `docs/PILOT-LOCAL-QC.md` for final checks.
 5. Cloud and live Sheet pilot deferred by user; no deployment or real Sheet mutation now.
 
 ## Verification
