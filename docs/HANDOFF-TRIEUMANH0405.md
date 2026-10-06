@@ -26,8 +26,8 @@ Làm theo tài liệu này để tạo Supabase cloud **do trieumanh0405 sở h�
    npx supabase --help
    npx supabase db --help
    npx supabase functions --help
-   npx supabase projects list
    npx supabase login
+   npx supabase projects list
    npx supabase link --project-ref YOUR_PROJECT_REF
    npx supabase migration list
    ```
@@ -109,7 +109,7 @@ npx supabase functions deploy sheets-worker
 
    ```sql
    begin;
-   lock table public.profiles, public.team_members in share row exclusive mode;
+   lock table public.team_members, public.profiles in share row exclusive mode;
 
    do $bootstrap$
    declare
@@ -139,9 +139,10 @@ npx supabase functions deploy sheets-worker
      end if;
 
      select u.id, u.email_confirmed_at
-       into auth_id, email_confirmed
+       into strict auth_id, email_confirmed
        from auth.users u
-       where lower(btrim(u.email)) = target_email;
+       where lower(btrim(u.email)) = target_email
+       for update;
      if auth_id is null or email_confirmed is null then
        raise exception 'The matching Auth user must have a confirmed email';
      end if;
@@ -218,20 +219,47 @@ Mặc định không cấu hình Sheet. Không thêm `GOOGLE_SERVICE_ACCOUNT_JSO
 
 Ghi lại kết quả kèm đúng project ref và URL deployment Pages. Local mock/CI không phải bằng chứng cloud.
 
-Để kiểm tra ghi âm khi Sheets vẫn tắt, chỉ trên project cloud mới, hãy thêm một lead giả không chứa thông tin khách hàng bằng SQL Editor. Chạy lại câu lệnh không tạo thêm lead trùng:
+Để kiểm tra ghi âm khi Sheets vẫn tắt, chỉ trên project cloud mới, hãy thêm một lead giả không chứa thông tin khách hàng bằng SQL Editor. ID cố định và khóa bảng khiến hai lần chạy đồng thời cũng không tạo lead trùng; câu lệnh giữ nguyên mọi trạng thái nếu lead giả đúng đã tồn tại và dừng nếu ID/tag bị dùng sai:
 
 ```sql
-insert into public.leads (phone, display_name, source, form_answers, notes)
-select '+10000000000', 'Lead kiểm thử', 'synthetic-cloud-smoke',
-       '{"purpose":"synthetic test only"}'::jsonb, 'Dữ liệu giả để kiểm tra cloud'
-where not exists (
-  select 1 from public.leads
-  where source = 'synthetic-cloud-smoke' and phone = '+10000000000'
-);
+begin;
+lock table public.leads in share row exclusive mode;
+
+do $smoke_lead$
+declare
+  smoke_id constant uuid := 'f9049bc4-2c39-4e77-b31d-22cbd61a9050';
+  existing public.leads%rowtype;
+  tagged_count integer;
+  existing_found boolean;
+begin
+  select * into existing from public.leads where id = smoke_id;
+  existing_found := found;
+  select count(*) into tagged_count
+    from public.leads where source = 'synthetic-cloud-smoke';
+
+  if existing_found then
+    if existing.source is distinct from 'synthetic-cloud-smoke'
+       or existing.phone is distinct from '+10000000000'
+       or tagged_count <> 1 then
+      raise exception 'Fixed smoke ID is occupied by a different lead or duplicate tag';
+    end if;
+    raise notice 'Matching smoke lead already exists; its current state is unchanged';
+  elsif tagged_count <> 0 then
+    raise exception 'Smoke tag already exists under another ID; inspect it manually';
+  else
+    insert into public.leads (id, phone, display_name, source, form_answers, notes)
+    values (
+      smoke_id, '+10000000000', 'Lead kiểm thử', 'synthetic-cloud-smoke',
+      '{"purpose":"synthetic test only"}'::jsonb, 'Dữ liệu giả để kiểm tra cloud'
+    );
+  end if;
+end
+$smoke_lead$;
+
+commit;
 
 select id, phone, display_name, source
-from public.leads
-where source = 'synthetic-cloud-smoke' and phone = '+10000000000';
+from public.leads where id = 'f9049bc4-2c39-4e77-b31d-22cbd61a9050';
 ```
 
 Chỉ chạy đoạn SQL này trên project test mới do bạn sở hữu, không chạy trong database đang có dữ liệu thật. Không tắt hoặc nới lỏng loopback guard của các script local để seed cloud.

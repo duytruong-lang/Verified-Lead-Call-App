@@ -12,11 +12,13 @@ Start the local Supabase stack using the project ID and ports in `supabase/confi
 
 ```sh
 npx supabase start
-npx supabase db reset --local --yes
+npx supabase migration up --local
 npm ci
 node scripts/prepare-local-functions-env.mjs
 npx supabase functions serve --env-file .supabase/functions.env
 ```
+
+This normal start/resume sequence applies pending migrations without recreating the local database. `npx supabase db reset --local --yes` deletes local users, leads, and audio metadata; use it only for an explicitly disposable project when you intend to remove its data. Never use it to resume a pilot or against cloud.
 
 The ignored local functions environment contains local keys plus generated encryption keys. The app and signed Storage URLs use `PUBLIC_SUPABASE_URL`; `SUPABASE_URL` is injected by Supabase for server calls. Cloud projects need their own `PUBLIC_APP_URL`, `APP_ORIGIN`, `PUBLIC_SUPABASE_URL`, `SHARE_ENCRYPTION_KEY`, `TEAM_LINK_ENCRYPTION_KEY`, and `TEAM_LINK_TTL_SECONDS`; see the cloud handoff and `supabase/functions/secrets.example`. Keep each encryption key stable for its project. Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` into deployed Edge Functions. Never put a service-role/secret key in Vite or Cloudflare Pages variables.
 

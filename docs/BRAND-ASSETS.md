@@ -8,7 +8,7 @@ The logo and 1990 Agency name are brand assets. Use them only to identify the ag
 
 ## Typography
 
-The public website CSS identifies **Montserrat** as the 1990 Agency website font: [official website stylesheet](https://www.1990.agency/wp-content/themes/theme-1990-agency/assets/css/main.css). The app self-hosts the regular Montserrat family through the pinned `@fontsource/montserrat` npm dependency in the lockfile, so the app does not rely on a third-party font CDN. The Montserrat typeface is distributed under the SIL Open Font License; retain the license notice supplied with the font package when redistributing its font files.
+The public website CSS identifies **Montserrat** as the 1990 Agency website font: [official website stylesheet](https://www.1990.agency/wp-content/themes/theme-1990-agency/assets/css/main.css). The app self-hosts the regular Montserrat family through the pinned `@fontsource/montserrat` npm dependency in the lockfile, so the app does not rely on a third-party font CDN. The package’s SIL Open Font License 1.1 notice is included in [`public/licenses/montserrat-OFL.txt`](../public/licenses/montserrat-OFL.txt); keep it with the distributed font files.
 
 Use Montserrat with Vietnamese glyph coverage. The app uses regular 400 for body copy, 500–600 for labels and controls, and 700 for headings. Do not copy `Transforma Sans_Trial` from presentation materials into the app.
 
