@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 type FixtureUser = { email: string; password: string };
-type FixtureManifest = { users: Record<string, FixtureUser>; e2eAdmin?: string; tag: string };
+type FixtureManifest = { users: Record<string, FixtureUser>; e2eAdmin?: string; tag: string; localOnly?: boolean; leadIds?: string[] };
 const fixturePath = process.env.SUPABASE_E2E_USERS_FILE ?? '.supabase/backend-test-users.json';
 const fixtures = JSON.parse(readFileSync(fixturePath, 'utf8')) as FixtureManifest;
 const admin = fixtures.users[fixtures.e2eAdmin ?? 'admin-keeper'];
@@ -68,6 +68,37 @@ async function trackSyntheticUser(email: string) {
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
 }
 
+async function createSyntheticLead(label: string) {
+  const url = process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_E2E_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey || !['localhost', '127.0.0.1', '::1'].includes(new URL(url).hostname)) {
+    throw new Error('Synthetic lead setup is restricted to the local Supabase fixture.');
+  }
+  const manifestPath = process.env.SUPABASE_E2E_USERS_FILE ?? fixturePath;
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as FixtureManifest;
+  if (manifest.localOnly !== true || !manifest.tag) throw new Error('Refusing to create an untracked synthetic lead.');
+  const leadId = randomUUID();
+  const name = `${label} ${leadId.slice(0, 8)}`;
+  manifest.leadIds = [...(manifest.leadIds ?? []), leadId];
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  const service = createClient(url, serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { error } = await service.from('leads').insert({
+    id: leadId,
+    phone: `+00-${leadId.slice(0, 4)}-${leadId.slice(4, 8)}`,
+    display_name: name,
+    source: 'local-browser-test',
+    form_answers: { campaign: `auth-access-${manifest.tag}` },
+  });
+  if (error) throw error;
+  return { leadId, name, async cleanup() {
+    const { error: deleteError } = await service.from('leads').delete().eq('id', leadId);
+    if (deleteError) throw deleteError;
+    const latest = JSON.parse(readFileSync(manifestPath, 'utf8')) as FixtureManifest;
+    latest.leadIds = (latest.leadIds ?? []).filter((id) => id !== leadId);
+    writeFileSync(manifestPath, `${JSON.stringify(latest, null, 2)}\n`, { mode: 0o600 });
+  } };
+}
+
 test('local Supabase: pending invite setup and active recovery both return to password sign-in', async ({ page, browser }) => {
   test.skip(!admin || !fixtures.tag, 'The local backend fixture manifest is not ready.');
   if (!admin || !fixtures.tag) return;
@@ -82,8 +113,13 @@ test('local Supabase: pending invite setup and active recovery both return to pa
   const memberEmail = `browser-auth-${randomUUID()}-${fixtures.tag}@example.invalid`;
   await page.getByRole('button', { name: 'Thành viên' }).click();
   await page.getByRole('button', { name: 'Mời thành viên' }).click();
-  await page.getByLabel('Email công việc').fill(memberEmail);
-  await page.getByRole('button', { name: 'Tạo liên kết mời' }).click();
+  const inviteEmail = page.getByLabel('Email công việc');
+  await expect(inviteEmail).toBeVisible();
+  await inviteEmail.fill(memberEmail);
+  await expect(inviteEmail).toHaveValue(memberEmail);
+  const createInvite = page.getByRole('button', { name: 'Tạo liên kết mời' });
+  await expect(createInvite).toBeEnabled();
+  await createInvite.click();
   await expect(page.getByRole('status')).toContainText('Đã tạo liên kết mời');
   const inviteLink = await page.getByLabel('Liên kết dùng một lần').inputValue();
   expect(inviteLink).toContain('/auth/confirm?token_hash=');
@@ -121,32 +157,43 @@ test('local Supabase: viewer fixture is read-only', async ({ page }) => {
   const viewer = fixtures.users.viewer;
   test.skip(!viewer, 'The local backend viewer fixture is not ready.');
   if (!viewer) return;
-  await signIn(page, viewer);
-  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
-  await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Bắt đầu gọi/ })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: /^Gọi/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Đã xác minh' })).toHaveCount(0);
+  const lead = await createSyntheticLead('Browser Viewer Lead');
+  try {
+    await signIn(page, viewer);
+    await page.getByRole('button', { name: new RegExp(lead.name) }).click();
+    await expect(page.getByRole('heading', { name: lead.name })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Bắt đầu gọi/ })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /^Gọi/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Đã xác minh' })).toHaveCount(0);
+  } finally {
+    await lead.cleanup();
+  }
 });
 
 test('local Supabase: temporary Auth outage stops the microphone and preserves the recorded draft', async ({ page }) => {
   test.skip(!admin, 'The local backend admin fixture is not ready.');
   if (!admin) return;
-  await signIn(page, admin);
-  await page.context().grantPermissions(['microphone']);
-  await page.getByRole('button', { name: /Nguyễn Minh Anh/ }).click();
-  await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();
-  await page.getByRole('button', { name: /Ghi âm/ }).click();
-  await expect(page.getByText('Đang ghi âm cuộc gọi')).toBeVisible();
-  await page.waitForTimeout(500);
-  await page.route('**/auth/v1/user', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'service unavailable' }) }));
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(page.getByRole('alert')).toContainText('Không thể kiểm tra quyền truy cập');
-  await expect(page.getByText(/Audio đã sẵn sàng/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Có quan tâm' })).toBeDisabled();
-  await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
-  await page.unroute('**/auth/v1/user');
-  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  await expect(page.getByRole('button', { name: 'Có quan tâm' })).toBeEnabled();
-  await expect(page.getByRole('heading', { name: 'Nguyễn Minh Anh' })).toBeVisible();
+  const lead = await createSyntheticLead('Browser Auth Outage Lead');
+  try {
+    await signIn(page, admin);
+    await page.context().grantPermissions(['microphone']);
+    await page.getByRole('button', { name: new RegExp(lead.name) }).click();
+    await expect(page.getByRole('heading', { name: lead.name })).toBeVisible();
+    await page.getByRole('button', { name: /Bắt đầu gọi/ }).click();
+    await page.getByRole('button', { name: /Ghi âm/ }).click();
+    await expect(page.getByText('Đang ghi âm cuộc gọi')).toBeVisible();
+    await page.waitForTimeout(500);
+    await page.route('**/auth/v1/user', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'service unavailable' }) }));
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.locator('.toast[role="alert"]')).toContainText('Không thể kiểm tra quyền truy cập');
+    await expect(page.getByText(/Audio hợp lệ và đang được giữ trên trang này cho đến khi lưu/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Có quan tâm' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: lead.name })).toBeVisible();
+    await page.unroute('**/auth/v1/user');
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(page.getByRole('button', { name: 'Có quan tâm' })).toBeEnabled();
+    await expect(page.getByRole('heading', { name: lead.name })).toBeVisible();
+  } finally {
+    await lead.cleanup();
+  }
 });
