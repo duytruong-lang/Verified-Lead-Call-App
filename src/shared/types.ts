@@ -24,6 +24,8 @@ export type SyncState = 'pending' | 'running' | 'succeeded' | 'retrying' | 'bloc
 
 export interface Actor {
   id: UUID;
+  /** Canonical team roster ID; distinct from the Auth user ID. */
+  memberId?: UUID;
   role: ActorRole;
   status: MemberStatus;
   email?: string;

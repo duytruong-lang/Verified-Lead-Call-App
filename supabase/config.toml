@@ -40,3 +40,6 @@ verify_jwt = true
 
 [functions.sheets-worker]
 verify_jwt = true
+
+[functions.team-admin]
+verify_jwt = true
