@@ -1,4 +1,4 @@
-/* global process, console, fetch */
+/* global process, console, fetch, URL */
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -80,7 +80,7 @@ function wav(seconds = 1) {
 }
 
 const adminId = await createUser('admin', true, 'admin');
-const adminBId = await createUser('admin-b', true, 'admin');
+await createUser('admin-b', true, 'admin');
 const adminKeeperId = await createUser('admin-keeper', true, 'admin');
 const staffId = await createUser('staff-a'); await createUser('staff-b');
 await createUser('viewer', true, 'viewer');
