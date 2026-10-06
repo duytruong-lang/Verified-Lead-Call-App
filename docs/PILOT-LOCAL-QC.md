@@ -50,3 +50,7 @@ Sau khi lưu source về thư mục project gốc và mở lại Colima/Supabase
 Bản `0ad03306b3cb21357c64d2af40fc0da50edd758d` xử lý SDK `AuthSessionMissingError` như trạng thái chưa đăng nhập, tránh báo lỗi tiếng Anh khi mở mới hoặc đăng xuất. Lỗi JWT không hợp lệ và lỗi mạng vẫn giữ phân loại riêng. Sol kiểm tra độc lập ba tests trong adapter; Astra chấp nhận delta này sau kết quả kiểm tra cuối.
 
 Typecheck, lint, 48 Vitest tests và build chạy lại đều pass. Browser smoke chỉ đọc trên app bàn giao xác nhận màn đăng nhập mới không có alert → admin đăng nhập → 10 lead giả, quyền Admin và font đã tải → đăng xuất không có alert. Ảnh sign-in được kiểm tra lại. Các bộ 17 demo browser tests, 117 backend assertions và 4 Supabase browser flows ở trên là bằng chứng tại bản nghiệm thu trước; backend không đổi, không chạy lại harness tổng thể trên database đã có lead pilot.
+
+## Official branding handoff
+
+Bản tích hợp `155e317` dùng SVG chính thức từ website 1990 Agency và Montserrat self-hosted; bỏ câu nhắc recorder ở trạng thái chưa có audio. Typecheck/lint/build, 48 unit tests và toàn bộ 17 demo Playwright tests chạy lại đều pass. Kiểm tra header bao gồm bounds của logo, tên sản phẩm và nút thao tác ở 320/375px, tránh việc CSS clip che tràn ngang. Browser smoke chỉ đọc trên Supabase local xác nhận admin đăng nhập, hàng đợi, logo/font thực sự tải và đăng xuất; không đổi lead. Hướng dẫn bàn giao mới không phải bằng chứng cloud đã triển khai.

@@ -1,46 +1,35 @@
-# Session handoff — 2026-10-06, Asia/Ho_Chi_Minh
+# GitHub handoff — 2026-10-06, Asia/Ho_Chi_Minh
 
 ## Objective and authorization
 
-The user approved the 1990/Hallmark UI, real email/password sign-in, manual invite/recovery links and Admin/Staff/Viewer membership enforcement, then selected **Supabase local first; cloud later**. Continue the local implementation and verification. No cloud project or real Sheet mutation is part of this phase. Montserrat is the approved temporary font exception.
+The user approved the completed local UI/Auth/access pilot, then requested an official 1990 website logo/Montserrat update, removal of the idle-recorder sentence, a full GitHub handoff to `trieumanh0405`, and verified private backup followed by local Supabase cleanup. The recipient will provision their own Supabase account/project/secrets. No cloud project or real Google Sheet operation is authorized in this task.
 
-Read `AGENTS.md`, `.agents/PROJECT.md`, `.agents/PLAN.md`, `.agents/DECISIONS.md` and `docs/API.md`. Git/code are authoritative; historical MVP evidence in `docs/HANDOFF.md` is separate from this release.
+GPT-6 Luna subagents implement and perform local operations. GPT-6.1 Sol independently reviews and performs final acceptance, superseding Astra for this handoff. Coordinator owns integration, shared contracts/manifests/migrations and evidence. No backend contract or schema change is required.
 
-## Git and source
+## Source and Git
 
-- PR #6 passed CI at `33d25e8` and merged as `67f06ac`.
-- Integration branch: `codex/pilot-ui-access`; PR #7: https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7.
-- Original synchronized checkout has blocking reads of historical Git objects/refs and some source files. Preserve its `.git`, old worktrees and private configuration. The accepted source was persisted to the original project with reversible backups at `.supabase/resume-backup-20261006-113916`. Temporary execution worktrees were removed between turns. The durable clean Git checkout is now `.supabase/integration` inside the original project, on the same remote branch.
-- Source hashes matched the accepted branch after persistence. Original Git history/index were preserved; some original Git reads still stall, so use the clean checkout for Git operations. Do not delete/reset the original Git metadata to bypass the issue.
-- Coordinator owns contracts, manifests/lockfiles and migrations. Luna implements; Sol independently reviews/QCs; Astra accepts after Sol. Check actual branch tips and uncommitted files on resume.
+Use the durable clean checkout `.supabase/integration` for Git; the original synchronized checkout has historical Git reads that can stall. Preserve the original `.git`, index and existing changes. Source was previously persisted with reversible backups under `.supabase/resume-backup-20261006-113916`. Never delete `.supabase` wholesale: it holds private configuration, the clean checkout, worktrees and recovery archives.
 
-## Accepted runtime and verification
+Integration branch `codex/pilot-ui-access`, PR #7: https://github.com/duytruong-lang/Verified-Lead-Call-App/pull/7. Base accepted application is `0ad0330`; official branding/UI and cloud handoff documentation are integrated at `155e317`. The final head must pass Sol review and CI before merge; confirm actual remote state when resuming.
 
-Docker/Colima/Deno are installed. The first newly created empty VM failed with disk I/O when the host had only 1.1 GB free. After space was freed, that empty VM was rebuilt; no existing app database was reset. The current Supabase local stack is healthy at `http://127.0.0.1:54321` with project ID `verified-lead-call-local`. Colima mounts the original project. Its former temporary-checkout mount may warn that the directory no longer exists; the current app does not use that mount. After the user freed space and the session restarted, the existing VM/database were reopened without reset; host free space was about 24 GB.
+## Verification and private runtime
 
-Eleven migrations are applied, including Viewer role, transactional membership and a follow-up serializing Sheet mapping writes with Admin revocation. Edge Functions are served from the original project with ignored `.supabase/functions.env`; preserve its encryption keys. Local core services exclude Realtime, Studio, analytics and pooler to conserve resources.
+The branding build passed typecheck, lint, 48 Vitest tests, build and all 17 demo Playwright tests. Responsive logo/header controls and font loading passed at 320/375/414/768px and desktop; actual local admin sign-in/logout, queue access, official logo and Montserrat loading passed without changing a lead. Existing backend acceptance remains 117 local assertions, four actual Supabase browser flows, five frozen Deno checks and four helper tests; these historical checks do not certify a cloud deployment.
 
-Astra accepted local UI/Auth/access at `a02871f`, after Sol delta QC at `c9bb1dd`; application/backend source is identical between those commits. Final evidence: typecheck/lint/build, 48 Vitest tests, 17 demo Playwright tests, 117 actual local backend assertions, five frozen Deno entrypoint checks, four Deno helper tests and four actual Supabase browser flows passed. See `docs/PILOT-LOCAL-QC.md` for exact boundaries. Actual browser tests used a dependency symlink with font allowlist warnings; the separate demo visual suite verified loaded Montserrat and responsive layouts.
+Before retirement the local project is `verified-lead-call-local` in Colima `default`. Preserve its database, Storage and encryption keys until a full private backup and isolated restore have passed Sol verification. The last planning inventory had 10 synthetic leads, 61 Auth identities and no recordings/Storage objects; recount after freezing writes rather than assuming those counts. The populated pilot must not be reset or run through the global fixture harness.
 
-All tracked harness/browser fixtures were cleaned and their test memberships disabled, retaining Auth/profile/audit history. The requested first admin was bootstrapped locally with a random password stored in ignored `.supabase/local-admin-credentials.json` (`0600`). Ten synthetic pilot leads are present; a second seed run inserted zero and preserved all ten. Do not run the global harness on this populated pilot database.
+Ignored `.supabase/functions.env`, `.supabase/local-admin-credentials.json`, `.supabase/backend-test-users.json`, `.env.supabase.local` and `.env.supabase.e2e` contain local-only secrets/configuration. Never print, commit or send them to the recipient. Backup/restore reports belong under ignored `.supabase/archives/`; procedures/evidence may also be under `.supabase/ops/`.
 
-## Bounded next actions
+## Bounded next action
 
-1. Open `docs/LOCAL-PILOT.md` for operator login/start commands and `docs/PILOT-LOCAL-QC.md` for accepted scope.
-2. Keep the database and encryption keys. Resume local services without `db reset`; test recording with the operator's physical phone/microphone when ready.
-3. Source and private runtime configuration are persisted in the original project. PR #7 remains open and ready for review. CI passed at `0b5d8fa`; check the latest head after the final Auth delta/evidence commit before calling that head green.
-4. Cloud/real Sheet remain deferred. Obtain cloud capacity, staff email, service-account Sheet permissions and a physical-call operator before that separate phase.
+Verify the isolated documentation SQL checks and Sol review, publish through PR with successful CI, then complete the approved private backup/restore and scoped local cleanup.
 
-## Private configuration and deferred work
+## Recipient handoff
 
-Ignored `.supabase/functions.env`, `.supabase/backend-test-users.json`, `.supabase/local-admin-credentials.json`, `.env.supabase.local` and `.env.supabase.e2e` contain machine-specific configuration/credentials. Never print or commit their contents, raw invite/recovery links or recordings. Browser configuration contains only the anon key, never service role credentials.
+Start with `docs/HANDOFF-TRIEUMANH0405.md`; asset provenance is in `docs/BRAND-ASSETS.md`. GitHub currently has a pending write invitation for the recipient; inspect its state before making any access claim. The guide uses a fresh cloud database, new secrets and guarded Admin provisioning; local credentials are not migrated. Cloudflare, real Sheet/Cron and physical two-way audio remain unverified.
 
-The requested admin email is in the user conversation; do not hardcode it into fixtures/docs. Supabase rejected free cloud project creation due account quota, so no cloud project exists for this pilot. Railway was only discussed. Cloudflare deployment, real Google Sheet/Cron, a staff email and physical two-way phone recording remain deferred and unverified.
+## Risks
 
-## Final operator smoke — 2026-10-06
-
-After restarting Colima and the existing Supabase stack, the app runs from the original project at `http://127.0.0.1:5173`. A read-only browser smoke logged in with the provisioned admin, verified ten synthetic leads and Admin controls, waited for actual Montserrat load, then logged out. It passed without changing a lead. Private screenshots are in `.supabase/local-workspace.png` and `.supabase/local-sign-in.png`. No cloud or real Sheet operation was performed.
-
-## Final missing-session correction
-
-Luna fixed the normal anonymous-session case using the SDK predicate; invalid JWT and transient network errors retain their prior classification. Sol independently reviewed/tested it; Astra accepted integrated `0ad0330`. Foundation checks were rerun with 48 Vitest tests passing. The read-only operator smoke now explicitly checks no alert on fresh sign-in and after logout, plus admin login, ten leads and loaded Montserrat; all passed. Final screenshots supersede the earlier smoke images. Backend/real-data boundaries remain unchanged.
+1. Stop cleanup if backup/restore verification fails. Keep source/Git and archives outside all deletion targets.
+2. Re-inventory Colima immediately before deletion. Delete its default VM/data only if it still has no unrelated workloads.
+3. The repository is public: keep all credentials, recordings, real leads and runtime backups private.
