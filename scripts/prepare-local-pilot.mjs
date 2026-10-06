@@ -13,7 +13,7 @@ const values = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
 const apiUrl = values.API_URL;
 if (!apiUrl || !values.ANON_KEY || !values.SERVICE_ROLE_KEY) throw new Error('Start the local Supabase project first.');
 const parsedUrl = new URL(apiUrl);
-if (!['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname)) throw new Error('Refusing to seed or configure anything outside loopback Supabase.');
+if (!['localhost', '127.0.0.1', '[::1]'].includes(parsedUrl.hostname)) throw new Error('Refusing to seed or configure anything outside loopback Supabase.');
 const envPath = resolve(cwd, '.env.supabase.local');
 const envContents = `VITE_APP_MODE=supabase\nVITE_SUPABASE_URL=${apiUrl}\nVITE_SUPABASE_ANON_KEY=${values.ANON_KEY}\n`;
 if (existsSync(envPath) && readFileSync(envPath, 'utf8') !== envContents) {
